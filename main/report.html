@@ -1,0 +1,316 @@
+
+<!DOCTYPE html>
+<html>
+	<head>
+		<meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+		<title>secureheaders: Go Coverage Report</title>
+		<style>
+			body {
+				background: black;
+				color: rgb(80, 80, 80);
+			}
+			body, pre, #legend span {
+				font-family: Menlo, monospace;
+				font-weight: bold;
+			}
+			#topbar {
+				background: black;
+				position: fixed;
+				top: 0; left: 0; right: 0;
+				height: 42px;
+				border-bottom: 1px solid rgb(80, 80, 80);
+			}
+			#content {
+				margin-top: 50px;
+			}
+			#nav, #legend {
+				float: left;
+				margin-left: 10px;
+			}
+			#legend {
+				margin-top: 12px;
+			}
+			#nav {
+				margin-top: 10px;
+			}
+			#legend span {
+				margin: 0 5px;
+			}
+			.cov0 { color: rgb(192, 0, 0) }
+.cov1 { color: rgb(128, 128, 128) }
+.cov2 { color: rgb(116, 140, 131) }
+.cov3 { color: rgb(104, 152, 134) }
+.cov4 { color: rgb(92, 164, 137) }
+.cov5 { color: rgb(80, 176, 140) }
+.cov6 { color: rgb(68, 188, 143) }
+.cov7 { color: rgb(56, 200, 146) }
+.cov8 { color: rgb(44, 212, 149) }
+.cov9 { color: rgb(32, 224, 152) }
+.cov10 { color: rgb(20, 236, 155) }
+
+		</style>
+	</head>
+	<body>
+		<div id="topbar">
+			<div id="nav">
+				<select id="files">
+				
+				<option value="file0">github.com/linkdata/secureheaders/csp.go (100.0%)</option>
+				
+				<option value="file1">github.com/linkdata/secureheaders/secureheaders.go (100.0%)</option>
+				
+				</select>
+			</div>
+			<div id="legend">
+				<span>not tracked</span>
+			
+				<span class="cov0">not covered</span>
+				<span class="cov8">covered</span>
+			
+			</div>
+		</div>
+		<div id="content">
+		
+		<pre class="file" id="file0" style="display: none">package secureheaders
+
+import (
+        "mime"
+        "net/url"
+        "path/filepath"
+        "slices"
+        "strings"
+)
+
+// BuildContentSecurityPolicy returns a CSP header value based on resource URLs.
+//
+// Resource URLs contribute external source expressions to script, style, image,
+// font and connect directives according to their type.
+func BuildContentSecurityPolicy(resourceURLs []*url.URL) (value string, err error) <span class="cov8" title="1">{
+        scriptSrc := make(map[string]struct{})
+        styleSrc := make(map[string]struct{})
+        imgSrc := make(map[string]struct{})
+        fontSrc := make(map[string]struct{})
+        connectSrc := make(map[string]struct{})
+
+        for _, u := range resourceURLs </span><span class="cov8" title="1">{
+                if u != nil </span><span class="cov8" title="1">{
+                        if source := cspSourceExpr(u); source != "" </span><span class="cov8" title="1">{
+                                switch cspDirectiveForURL(u) </span>{
+                                case "script":<span class="cov8" title="1">
+                                        scriptSrc[source] = struct{}{}</span>
+                                case "style":<span class="cov8" title="1">
+                                        styleSrc[source] = struct{}{}
+                                        // Stylesheets commonly reference webfonts via relative URLs.
+                                        fontSrc[source] = struct{}{}</span>
+                                case "img":<span class="cov8" title="1">
+                                        imgSrc[source] = struct{}{}</span>
+                                case "font":<span class="cov8" title="1">
+                                        fontSrc[source] = struct{}{}</span>
+                                case "connect":<span class="cov8" title="1">
+                                        connectSrc[source] = struct{}{}</span>
+                                }
+                        }
+                }
+        }
+
+        <span class="cov8" title="1">value = strings.Join([]string{
+                "default-src 'self'",
+                "frame-ancestors 'none'",
+                "object-src 'none'",
+                "base-uri 'self'",
+                "form-action 'self'",
+                cspDirective("script-src", []string{"'self'"}, scriptSrc),
+                cspDirective("style-src", []string{"'self'", "'unsafe-inline'"}, styleSrc),
+                cspDirective("img-src", []string{"'self'", "data:"}, imgSrc),
+                cspDirective("font-src", []string{"'self'"}, fontSrc),
+                cspDirective("connect-src", []string{"'self'"}, connectSrc),
+        }, "; ")
+
+        return</span>
+}
+
+func cspDirective(name string, defaults []string, extras map[string]struct{}) string <span class="cov8" title="1">{
+        var values []string
+        for extra := range extras </span><span class="cov8" title="1">{
+                values = append(values, extra)
+        }</span>
+        <span class="cov8" title="1">slices.Sort(values)
+        return name + " " + strings.Join(append(defaults, values...), " ")</span>
+}
+
+func cspDirectiveForURL(u *url.URL) string <span class="cov8" title="1">{
+        switch u.Scheme </span>{
+        case "ws", "wss":<span class="cov8" title="1">
+                return "connect"</span>
+        }
+
+        <span class="cov8" title="1">mimetype := mime.TypeByExtension(filepath.Ext(u.Path))
+        switch </span>{
+        case strings.HasPrefix(mimetype, "text/css"):<span class="cov8" title="1">
+                return "style"</span>
+        case strings.HasPrefix(mimetype, "text/javascript"):<span class="cov8" title="1">
+                return "script"</span>
+        case strings.HasPrefix(mimetype, "image/"):<span class="cov8" title="1">
+                return "img"</span>
+        case strings.HasPrefix(mimetype, "font/"):<span class="cov8" title="1">
+                return "font"</span>
+        }
+        <span class="cov8" title="1">return ""</span>
+}
+
+func cspSourceExpr(u *url.URL) (src string) <span class="cov8" title="1">{
+        if u.Host != "" </span><span class="cov8" title="1">{
+                switch u.Scheme </span>{
+                case "http", "https", "ws", "wss":<span class="cov8" title="1">
+                        src = u.Scheme + "://" + u.Host</span>
+                }
+        }
+        <span class="cov8" title="1">return</span>
+}
+</pre>
+		
+		<pre class="file" id="file1" style="display: none">package secureheaders
+
+import (
+        "net/http"
+        "strings"
+)
+
+// DefaultHeaders contains the default security header values used by SetHeaders.
+//
+// These are not protected by a mutex, so modifying the map while serving requests is racy.
+var DefaultHeaders = http.Header{
+        "Referrer-Policy":           {"strict-origin-when-cross-origin"},
+        "Content-Security-Policy":   {"default-src 'self'; frame-ancestors 'none'"},
+        "X-Content-Type-Options":    {"nosniff"},
+        "X-Frame-Options":           {"DENY"},
+        "X-Xss-Protection":          {"0"},
+        "Permissions-Policy":        {"camera=(), microphone=(), geolocation=(), payment=()"},
+        "Strict-Transport-Security": {"max-age=31536000; includeSubDomains"},
+}
+
+// SetHeaders sets the response headers to the values in src.
+// If src is nil, DefaultHeaders is used.
+//
+// If ishttps is false, Strict-Transport-Security is not set.
+func SetHeaders(src http.Header, hw http.ResponseWriter, ishttps bool) <span class="cov8" title="1">{
+        if src == nil </span><span class="cov8" title="1">{
+                src = DefaultHeaders
+        }</span>
+        <span class="cov8" title="1">hdr := hw.Header()
+        for k, v := range src </span><span class="cov8" title="1">{
+                if ishttps || k != "Strict-Transport-Security" </span><span class="cov8" title="1">{
+                        hdr[k] = v
+                }</span>
+        }
+}
+
+// Middleware wraps an HTTP handler and sets secure default response headers
+// before delegating to the wrapped handler.
+//
+// The embedded Handler must be non-nil.
+type Middleware struct {
+        http.Handler // Handler receives the request after security headers are set.
+        http.Header  // The headers to set. If nil, uses DefaultHeaders
+        // TrustForwardedHeaders enables forwarded-header HTTPS detection
+        // (X-Forwarded-Ssl, Front-End-Https, X-Forwarded-Proto and Forwarded).
+        // Enable only when these headers are set and sanitized by trusted
+        // infrastructure.
+        TrustForwardedHeaders bool
+}
+
+func (m Middleware) ServeHTTP(hw http.ResponseWriter, hr *http.Request) <span class="cov8" title="1">{
+        SetHeaders(m.Header, hw, RequestIsSecure(hr, m.TrustForwardedHeaders))
+        m.Handler.ServeHTTP(hw, hr)
+}</span>
+
+// RequestIsSecure reports if a request should be considered HTTPS.
+//
+// It always treats requests with non-nil TLS as secure.
+//
+// If trustForwardedHeaders is true, it also honors the forwarding headers
+// X-Forwarded-Ssl, Front-End-Https, X-Forwarded-Proto and Forwarded.
+//
+// For list-valued forwarding headers, only the first hop is used.
+func RequestIsSecure(hr *http.Request, trustForwardedHeaders bool) (yes bool) <span class="cov8" title="1">{
+        if hr != nil </span><span class="cov8" title="1">{
+                if hr.TLS != nil </span><span class="cov8" title="1">{
+                        yes = true
+                }</span>
+                <span class="cov8" title="1">if trustForwardedHeaders &amp;&amp; !yes </span><span class="cov8" title="1">{
+                        yes = headerToken(hr.Header.Get("X-Forwarded-Ssl")) == "on"
+                        yes = yes || headerToken(hr.Header.Get("Front-End-Https")) == "on"
+                        yes = yes || requestForwardedIsSecure(hr.Header.Get("Forwarded"))
+                        yes = yes || requestXForwardedProtoIsSecure(hr.Header.Get("X-Forwarded-Proto"))
+                }</span>
+        }
+        <span class="cov8" title="1">return</span>
+}
+
+func requestXForwardedProtoIsSecure(value string) (yes bool) <span class="cov8" title="1">{
+        if value != "" </span><span class="cov8" title="1">{
+                if i := strings.IndexByte(value, ','); i &gt;= 0 </span><span class="cov8" title="1">{
+                        value = value[:i]
+                }</span>
+                <span class="cov8" title="1">value = headerToken(value)
+                if i := strings.IndexAny(value, " \t\r\n"); i &gt;= 0 </span><span class="cov8" title="1">{
+                        value = value[:i]
+                }</span>
+                <span class="cov8" title="1">yes = value == "https"</span>
+        }
+        <span class="cov8" title="1">return</span>
+}
+
+func requestForwardedIsSecure(value string) (yes bool) <span class="cov8" title="1">{
+        if value != "" </span><span class="cov8" title="1">{
+                if i := strings.IndexByte(value, ','); i &gt;= 0 </span><span class="cov8" title="1">{
+                        value = value[:i]
+                }</span>
+                <span class="cov8" title="1">for _, param := range strings.Split(value, ";") </span><span class="cov8" title="1">{
+                        param = strings.TrimSpace(param)
+                        key, val, ok := strings.Cut(param, "=")
+                        if ok &amp;&amp; headerToken(key) == "proto" </span><span class="cov8" title="1">{
+                                val = strings.Trim(strings.TrimSpace(val), "\"")
+                                yes = headerToken(val) == "https"
+                                return
+                        }</span>
+                }
+        }
+        <span class="cov8" title="1">return</span>
+}
+
+func headerToken(value string) string <span class="cov8" title="1">{
+        return strings.ToLower(strings.TrimSpace(value))
+}</span>
+</pre>
+		
+		</div>
+	</body>
+	<script>
+	(function() {
+		var files = document.getElementById('files');
+		var visible;
+		files.addEventListener('change', onChange, false);
+		function select(part) {
+			if (visible)
+				visible.style.display = 'none';
+			visible = document.getElementById(part);
+			if (!visible)
+				return;
+			files.value = part;
+			visible.style.display = 'block';
+			location.hash = part;
+		}
+		function onChange() {
+			select(files.value);
+			window.scrollTo(0, 0);
+		}
+		if (location.hash != "") {
+			select(location.hash.substr(1));
+		}
+		if (!visible) {
+			select("file0");
+		}
+	})();
+	</script>
+</html>
