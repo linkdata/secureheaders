@@ -50,10 +50,26 @@ func TestSecureHeaders_SetHeaders_UsesDefaultHeaders(t *testing.T) {
 func TestSecureHeaders_SetHeaders_CopiesHeaderValues(t *testing.T) {
 	rr := httptest.NewRecorder()
 	secureheaders.SetHeaders(nil, rr, true)
-	rr.Header().Set("Referrer-Policy", "mutated")
+	rr.Header()["Referrer-Policy"][0] = "mutated"
 
 	if got := secureheaders.DefaultHeaders.Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
 		t.Fatalf("expected DefaultHeaders to be unchanged, got %q", got)
+	}
+}
+
+func TestSecureHeaders_SetHeaders_SkipsHSTSCaseInsensitively(t *testing.T) {
+	src := http.Header{
+		"strict-transport-security": {"max-age=123"},
+		"Referrer-Policy":           {"no-referrer"},
+	}
+	rr := httptest.NewRecorder()
+	secureheaders.SetHeaders(src, rr, false)
+
+	if got := rr.Header().Get("Strict-Transport-Security"); got != "" {
+		t.Fatalf("expected no HSTS over HTTP, got %q", got)
+	}
+	if got := rr.Header().Get("Referrer-Policy"); got != "no-referrer" {
+		t.Fatalf("expected non-HSTS header to be copied, got %q", got)
 	}
 }
 

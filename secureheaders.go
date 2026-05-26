@@ -28,8 +28,8 @@ func SetHeaders(src http.Header, hw http.ResponseWriter, ishttps bool) {
 	}
 	hdr := hw.Header()
 	for k, v := range src {
-		if ishttps || k != "Strict-Transport-Security" {
-			hdr[k] = v
+		if ishttps || !strings.EqualFold(k, "Strict-Transport-Security") {
+			hdr[k] = append([]string(nil), v...)
 		}
 	}
 }
