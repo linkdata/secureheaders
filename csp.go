@@ -61,7 +61,9 @@ func cspDirective(name string, defaults []string, extras map[string]struct{}) st
 		values = append(values, extra)
 	}
 	slices.Sort(values)
-	return name + " " + strings.Join(append(defaults, values...), " ")
+	// slices.Concat allocates a fresh slice, so defaults is never mutated even
+	// when a caller passes a slice with spare capacity.
+	return name + " " + strings.Join(slices.Concat(defaults, values), " ")
 }
 
 // cspExtDirective maps a lowercased file extension (including the leading dot)
