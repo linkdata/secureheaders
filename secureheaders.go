@@ -2,6 +2,7 @@ package secureheaders
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 )
 
@@ -30,7 +31,7 @@ func SetHeaders(src http.Header, hw http.ResponseWriter, ishttps bool) {
 	for k, v := range src {
 		k = http.CanonicalHeaderKey(k)
 		if ishttps || k != "Strict-Transport-Security" {
-			hdr[k] = append([]string(nil), v...)
+			hdr[k] = slices.Clone(v)
 		}
 	}
 }
@@ -99,7 +100,7 @@ func requestForwardedIsSecure(value string) (yes bool) {
 		if i := strings.IndexByte(value, ','); i >= 0 {
 			value = value[:i]
 		}
-		for _, param := range strings.Split(value, ";") {
+		for param := range strings.SplitSeq(value, ";") {
 			param = strings.TrimSpace(param)
 			key, val, ok := strings.Cut(param, "=")
 			if ok && headerToken(key) == "proto" {
