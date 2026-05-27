@@ -10,6 +10,8 @@ import (
 
 // BuildContentSecurityPolicy returns a CSP header value based on resource URLs.
 //
+// The default policy includes style-src 'unsafe-inline'.
+//
 // Resource URLs contribute external source expressions to script, style, image,
 // font and connect directives according to their type.
 func BuildContentSecurityPolicy(resourceURLs []*url.URL) (value string) {

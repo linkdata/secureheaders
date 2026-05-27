@@ -72,10 +72,11 @@ For list-valued forwarding headers, the first hop is used.
 
 Behavior:
 
-- Starts with a strict baseline:
+- Starts with a baseline policy:
   `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';`
   `img-src 'self' data:; font-src 'self'; connect-src 'self'; `
   `frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'`.
+- Includes `style-src 'unsafe-inline'` by default.
 - Adds external source expressions from `resourceURLs` by resource type:
   - `.js` -> `script-src`
   - `.css` -> `style-src`
