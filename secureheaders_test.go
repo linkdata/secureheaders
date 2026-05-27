@@ -18,32 +18,27 @@ var wantDefaultHeaders = map[string]string{
 }
 
 func TestSecureHeaders_DefaultHeaders(t *testing.T) {
+	hdr := secureheaders.DefaultHeaders()
 	for key, want := range wantDefaultHeaders {
-		if got := secureheaders.DefaultHeaders.Get(key); got != want {
+		if got := hdr.Get(key); got != want {
 			t.Errorf("%s: expected %q, got %q", key, want, got)
 		}
 	}
-	if got := secureheaders.DefaultHeaders.Get("Strict-Transport-Security"); got != "max-age=31536000; includeSubDomains" {
+	if got := hdr.Get("Strict-Transport-Security"); got != "max-age=31536000; includeSubDomains" {
 		t.Errorf("Strict-Transport-Security: expected %q, got %q", "max-age=31536000; includeSubDomains", got)
 	}
 }
 
-func TestSecureHeaders_SetHeaders_UsesDefaultHeaders(t *testing.T) {
-	orig := secureheaders.DefaultHeaders.Clone()
-	defer func() {
-		secureheaders.DefaultHeaders = orig
-	}()
+func TestSecureHeaders_DefaultHeaders_ReturnsCopy(t *testing.T) {
+	hdr := secureheaders.DefaultHeaders()
+	hdr["Referrer-Policy"][0] = "no-referrer"
+	hdr.Set("Strict-Transport-Security", "max-age=123")
 
-	secureheaders.DefaultHeaders.Set("Referrer-Policy", "no-referrer")
-	secureheaders.DefaultHeaders.Set("Strict-Transport-Security", "max-age=123")
-
-	rr := httptest.NewRecorder()
-	secureheaders.SetHeaders(nil, rr, false)
-	if got := rr.Header().Get("Referrer-Policy"); got != "no-referrer" {
-		t.Fatalf("expected updated header value, got %q", got)
+	if got := secureheaders.DefaultHeaders().Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
+		t.Fatalf("expected default Referrer-Policy to be unchanged, got %q", got)
 	}
-	if got := rr.Header().Get("Strict-Transport-Security"); got != "" {
-		t.Fatalf("expected no HSTS over HTTP, got %q", got)
+	if got := secureheaders.DefaultHeaders().Get("Strict-Transport-Security"); got != "max-age=31536000; includeSubDomains" {
+		t.Fatalf("expected default HSTS to be unchanged, got %q", got)
 	}
 }
 
@@ -52,7 +47,7 @@ func TestSecureHeaders_SetHeaders_CopiesHeaderValues(t *testing.T) {
 	secureheaders.SetHeaders(nil, rr, true)
 	rr.Header()["Referrer-Policy"][0] = "mutated"
 
-	if got := secureheaders.DefaultHeaders.Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
+	if got := secureheaders.DefaultHeaders().Get("Referrer-Policy"); got != "strict-origin-when-cross-origin" {
 		t.Fatalf("expected DefaultHeaders to be unchanged, got %q", got)
 	}
 }

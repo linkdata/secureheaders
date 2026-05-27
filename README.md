@@ -39,6 +39,19 @@ checking if a request is secure.
 Set it to `true` only when forwarding headers are set and sanitized by trusted
 infrastructure (for example, your reverse proxy).
 
+To customize the baseline, start from a copy of the defaults and pass it to the
+middleware:
+
+```go
+headers := secureheaders.DefaultHeaders()
+headers.Set("Content-Security-Policy", "default-src 'self'; object-src 'none'")
+
+mux.Handle("GET /", secureheaders.Middleware{
+	Handler: myHandler,
+	Header:  headers,
+})
+```
+
 ## Security detection
 
 `RequestIsSecure(r, trustForwardedHeaders)` always trusts `r.TLS != nil`.

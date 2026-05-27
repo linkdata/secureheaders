@@ -6,10 +6,7 @@ import (
 	"strings"
 )
 
-// DefaultHeaders contains the default security header values used by SetHeaders.
-//
-// These are not protected by a mutex, so modifying the map while serving requests is racy.
-var DefaultHeaders = http.Header{
+var defaultHeaders = http.Header{
 	"Referrer-Policy":           {"strict-origin-when-cross-origin"},
 	"Content-Security-Policy":   {"default-src 'self'; frame-ancestors 'none'"},
 	"X-Content-Type-Options":    {"nosniff"},
@@ -19,13 +16,18 @@ var DefaultHeaders = http.Header{
 	"Strict-Transport-Security": {"max-age=31536000; includeSubDomains"},
 }
 
+// DefaultHeaders returns a copy of the default security headers used by SetHeaders.
+func DefaultHeaders() http.Header {
+	return defaultHeaders.Clone()
+}
+
 // SetHeaders sets the response headers to the values in src.
-// If src is nil, DefaultHeaders is used.
+// If src is nil, the default security headers are used.
 //
 // If ishttps is false, Strict-Transport-Security is not set.
 func SetHeaders(src http.Header, hw http.ResponseWriter, ishttps bool) {
 	if src == nil {
-		src = DefaultHeaders
+		src = defaultHeaders
 	}
 	hdr := hw.Header()
 	for k, v := range src {
@@ -42,7 +44,7 @@ func SetHeaders(src http.Header, hw http.ResponseWriter, ishttps bool) {
 // The embedded Handler must be non-nil.
 type Middleware struct {
 	http.Handler // Handler receives the request after security headers are set.
-	http.Header  // The headers to set. If nil, uses DefaultHeaders
+	http.Header  // The headers to set. If nil, uses the default security headers.
 	// TrustForwardedHeaders enables forwarded-header HTTPS detection
 	// (X-Forwarded-Ssl, Front-End-Https, X-Forwarded-Proto and Forwarded).
 	// Enable only when these headers are set and sanitized by trusted
