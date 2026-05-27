@@ -286,14 +286,14 @@ func TestRequestIsSecure(t *testing.T) {
 			want:                  true,
 		},
 		{
-			name: "x-forwarded-proto-first-hop-https-with-extra-whitespace-token",
+			name: "x-forwarded-proto-first-hop-https-with-extra-token",
 			request: func() *http.Request {
 				r := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
 				r.Header.Set("X-Forwarded-Proto", "https nonsense")
 				return r
 			},
 			trustForwardedHeaders: true,
-			want:                  true,
+			want:                  false,
 		},
 		{
 			name: "forwarded-proto-https",

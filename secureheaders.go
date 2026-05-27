@@ -87,9 +87,6 @@ func requestXForwardedProtoIsSecure(value string) (yes bool) {
 			value = value[:i]
 		}
 		value = headerToken(value)
-		if i := strings.IndexAny(value, " \t\r\n"); i >= 0 {
-			value = value[:i]
-		}
 		yes = value == "https"
 	}
 	return
