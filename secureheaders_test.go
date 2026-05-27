@@ -311,6 +311,26 @@ func TestRequestIsSecure(t *testing.T) {
 			want:                  false,
 		},
 		{
+			name: "forwarded-proto-quoted-https",
+			request: func() *http.Request {
+				r := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+				r.Header.Set("Forwarded", `for=192.0.2.1;proto="https"`)
+				return r
+			},
+			trustForwardedHeaders: true,
+			want:                  true,
+		},
+		{
+			name: "forwarded-proto-uppercase",
+			request: func() *http.Request {
+				r := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+				r.Header.Set("Forwarded", "for=192.0.2.1;proto=HTTPS")
+				return r
+			},
+			trustForwardedHeaders: true,
+			want:                  true,
+		},
+		{
 			name: "forwarded-first-hop-wins",
 			request: func() *http.Request {
 				r := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
