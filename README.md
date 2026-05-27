@@ -76,12 +76,9 @@ Example:
 u1, _ := url.Parse("https://cdn.jsdelivr.net/npm/bootstrap@5/dist/css/bootstrap.min.css")
 u2, _ := url.Parse("https://cdn.jsdelivr.net/npm/bootstrap@5/dist/js/bootstrap.min.js")
 
-csp, err := secureheaders.BuildContentSecurityPolicy(
+csp := secureheaders.BuildContentSecurityPolicy(
 	[]*url.URL{u1, u2},
 )
-if err != nil {
-	panic(err)
-}
 w.Header().Set("Content-Security-Policy", csp)
 ```
 

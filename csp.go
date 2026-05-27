@@ -12,7 +12,7 @@ import (
 //
 // Resource URLs contribute external source expressions to script, style, image,
 // font and connect directives according to their type.
-func BuildContentSecurityPolicy(resourceURLs []*url.URL) (value string, err error) {
+func BuildContentSecurityPolicy(resourceURLs []*url.URL) (value string) {
 	scriptSrc := make(map[string]struct{})
 	styleSrc := make(map[string]struct{})
 	imgSrc := make(map[string]struct{})
