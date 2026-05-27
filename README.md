@@ -79,6 +79,8 @@ Behavior:
   `style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self';`
   `connect-src 'self'`.
 - Includes `style-src 'unsafe-inline'` by default.
+- Expects `resourceURLs` to come from trusted application configuration; this
+  helper classifies known resources and does not sanitize arbitrary user input.
 - Adds external source expressions from `resourceURLs` by resource type:
   - `ws://`/`wss://` URLs -> `connect-src`
   - all other URLs are classified by their file extension:

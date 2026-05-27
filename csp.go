@@ -15,6 +15,10 @@ import (
 //
 // Resource URLs contribute external source expressions to script, style, image,
 // font and connect directives according to their type.
+//
+// The resource URLs are expected to come from trusted application configuration,
+// not from arbitrary user input. This function classifies known resources; it is
+// not a URL sanitizer.
 func BuildContentSecurityPolicy(resourceURLs []*url.URL) (value string) {
 	scriptSrc := make(map[string]struct{})
 	styleSrc := make(map[string]struct{})
@@ -96,7 +100,7 @@ var cspExtDirective = map[string]string{
 }
 
 func cspDirectiveForURL(u *url.URL) string {
-	switch u.Scheme {
+	switch strings.ToLower(u.Scheme) {
 	case "ws", "wss":
 		return "connect"
 	}
@@ -123,10 +127,11 @@ func cspDirectiveForURL(u *url.URL) string {
 }
 
 func cspSourceExpr(u *url.URL) (src string) {
-	if u.Host != "" {
-		switch u.Scheme {
-		case "http", "https", "ws", "wss":
-			src = u.Scheme + "://" + u.Host
+	scheme := strings.ToLower(u.Scheme)
+	switch scheme {
+	case "http", "https", "ws", "wss":
+		if u.Host != "" {
+			src = scheme + "://" + u.Host
 		}
 	}
 	return

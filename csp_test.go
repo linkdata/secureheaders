@@ -74,6 +74,25 @@ func TestSecureHeaders_BuildContentSecurityPolicy_ConnectResource(t *testing.T) 
 	}
 }
 
+func TestSecureHeaders_BuildContentSecurityPolicy_ValidSourcesWithPorts(t *testing.T) {
+	urls := []*url.URL{
+		mustParseURL(t, "https://cdn.example.com:8443/app.js"),
+		mustParseURL(t, "https://[2001:db8::1]:443/font.woff2"),
+		mustParseURL(t, "wss://events.example.com:8443/socket"),
+	}
+
+	got := secureheaders.BuildContentSecurityPolicy(urls)
+	if !strings.Contains(got, "script-src 'self' https://cdn.example.com:8443") {
+		t.Fatalf("expected HTTPS source with port, got: %q", got)
+	}
+	if !strings.Contains(got, "font-src 'self' https://[2001:db8::1]:443") {
+		t.Fatalf("expected IPv6 source with port, got: %q", got)
+	}
+	if !strings.Contains(got, "connect-src 'self' wss://events.example.com:8443") {
+		t.Fatalf("expected WSS source with port, got: %q", got)
+	}
+}
+
 func TestSecureHeaders_BuildContentSecurityPolicy_StyleSourceAlsoAllowsFonts(t *testing.T) {
 	urls := []*url.URL{
 		mustParseURL(t, "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.min.css"),
