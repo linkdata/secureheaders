@@ -1,6 +1,7 @@
 package secureheaders_test
 
 import (
+	"mime"
 	"net/url"
 	"strings"
 	"testing"
@@ -93,13 +94,52 @@ func TestSecureHeaders_BuildContentSecurityPolicy_FontExtensionWithQuery(t *test
 	}
 }
 
-func TestSecureHeaders_BuildContentSecurityPolicy_FontByMIMEExtension(t *testing.T) {
+func TestSecureHeaders_BuildContentSecurityPolicy_FontByExtension(t *testing.T) {
 	urls := []*url.URL{
 		mustParseURL(t, "https://cdn.jsdelivr.net/fonts/family.ttc"),
 	}
 	got := secureheaders.BuildContentSecurityPolicy(urls)
 	if !strings.Contains(got, "font-src 'self' https://cdn.jsdelivr.net") {
-		t.Fatalf("expected .ttc source in font-src via MIME detection, got: %q", got)
+		t.Fatalf("expected .ttc source in font-src, got: %q", got)
+	}
+}
+
+func TestSecureHeaders_BuildContentSecurityPolicy_MIMEFallback(t *testing.T) {
+	const host = "https://cdn.example.com"
+	tests := []struct {
+		name     string
+		ext      string
+		mimeType string
+		wantSub  string // substring that must appear; "" means the host must be absent
+	}{
+		{"script", ".customjs", "text/javascript", "script-src 'self' " + host},
+		{"script-application-javascript", ".customappjs", "application/javascript", "script-src 'self' " + host},
+		{"script-application-ecmascript", ".customes", "application/ecmascript", "script-src 'self' " + host},
+		{"style", ".customcss", "text/css", "style-src 'self' 'unsafe-inline' " + host},
+		{"image", ".customimg", "image/x-custom", "img-src 'self' data: " + host},
+		{"font", ".customfont", "font/x-custom", "font-src 'self' " + host},
+		{"unmatched", ".customjson", "application/json", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// An extension absent from the explicit map must fall back to the
+			// standard library's MIME database. Register one so the test is
+			// deterministic across hosts.
+			if err := mime.AddExtensionType(tc.ext, tc.mimeType); err != nil {
+				t.Fatalf("AddExtensionType: %v", err)
+			}
+			u := mustParseURL(t, host+"/asset"+tc.ext)
+			got := secureheaders.BuildContentSecurityPolicy([]*url.URL{u})
+			if tc.wantSub == "" {
+				if strings.Contains(got, host) {
+					t.Fatalf("expected unmatched MIME type to be dropped, got: %q", got)
+				}
+				return
+			}
+			if !strings.Contains(got, tc.wantSub) {
+				t.Fatalf("expected %q in CSP, got: %q", tc.wantSub, got)
+			}
+		})
 	}
 }
 

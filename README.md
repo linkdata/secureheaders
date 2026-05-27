@@ -73,16 +73,25 @@ For list-valued forwarding headers, the first hop is used.
 Behavior:
 
 - Starts with a baseline policy:
-  `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline';`
-  `img-src 'self' data:; font-src 'self'; connect-src 'self'; `
-  `frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'`.
+  `default-src 'self'; frame-ancestors 'none'; object-src 'none';`
+  `base-uri 'self'; form-action 'self'; script-src 'self';`
+  `style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self';`
+  `connect-src 'self'`.
 - Includes `style-src 'unsafe-inline'` by default.
 - Adds external source expressions from `resourceURLs` by resource type:
-  - `.js` -> `script-src`
-  - `.css` -> `style-src`
-  - image MIME types -> `img-src`
-  - font MIME types -> `font-src`
   - `ws://`/`wss://` URLs -> `connect-src`
+  - all other URLs are classified by their file extension:
+    - an explicit list of common script, style, image and font extensions
+      (including web fonts such as `.woff2`, `.otf` and `.eot`) is consulted
+      first;
+    - extensions not on that list fall back to the host's MIME database
+      (`mime.TypeByExtension`), mapping `text/javascript`,
+      `application/javascript` and `application/ecmascript` -> `script-src`,
+      `text/css` -> `style-src`, `image/*` -> `img-src` and `font/*` ->
+      `font-src`;
+    - stylesheet sources are also added to `font-src`, since stylesheets
+      commonly reference webfonts via relative URLs;
+    - URLs whose extension matches neither are ignored.
 
 Example:
 

@@ -2,6 +2,7 @@ package secureheaders
 
 import (
 	"maps"
+	"mime"
 	"net/url"
 	"path"
 	"slices"
@@ -68,10 +69,11 @@ func cspDirective(name string, defaults []string, extras map[string]struct{}) st
 // cspExtDirective maps a lowercased file extension (including the leading dot)
 // to the CSP directive group whose origin list should allow the resource.
 //
-// The mapping is explicit rather than derived from mime.TypeByExtension so that
-// detection is deterministic and does not depend on the host's MIME database,
-// which is incomplete for web fonts (for example, .otf and .eot) and varies
-// across operating systems and minimal container images.
+// It is consulted before mime.TypeByExtension so that detection is deterministic
+// for these extensions regardless of the host's MIME database, which is
+// incomplete for web fonts (for example, .otf and .eot) and varies across
+// operating systems and minimal container images. Extensions not listed here
+// fall back to MIME-based detection.
 var cspExtDirective = map[string]string{
 	".js":    "script",
 	".mjs":   "script",
@@ -98,7 +100,26 @@ func cspDirectiveForURL(u *url.URL) string {
 	case "ws", "wss":
 		return "connect"
 	}
-	return cspExtDirective[strings.ToLower(path.Ext(u.Path))]
+
+	ext := strings.ToLower(path.Ext(u.Path))
+	if directive, ok := cspExtDirective[ext]; ok {
+		return directive
+	}
+
+	// Fall back to the host's MIME database for extensions not in the explicit map.
+	switch mimetype := mime.TypeByExtension(ext); {
+	case strings.HasPrefix(mimetype, "text/css"):
+		return "style"
+	case strings.HasPrefix(mimetype, "text/javascript"),
+		strings.HasPrefix(mimetype, "application/javascript"),
+		strings.HasPrefix(mimetype, "application/ecmascript"):
+		return "script"
+	case strings.HasPrefix(mimetype, "image/"):
+		return "img"
+	case strings.HasPrefix(mimetype, "font/"):
+		return "font"
+	}
+	return ""
 }
 
 func cspSourceExpr(u *url.URL) (src string) {
