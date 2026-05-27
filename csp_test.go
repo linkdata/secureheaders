@@ -102,3 +102,44 @@ func TestSecureHeaders_BuildContentSecurityPolicy_FontByMIMEExtension(t *testing
 		t.Fatalf("expected .ttc source in font-src via MIME detection, got: %q", got)
 	}
 }
+
+func TestSecureHeaders_BuildContentSecurityPolicy_ResourceTypeDetection(t *testing.T) {
+	const host = "https://cdn.example.com"
+	tests := []struct {
+		name    string
+		path    string
+		wantSub string // substring that must appear in the resulting CSP
+	}{
+		{"js script", "/j/a.js", "script-src 'self' " + host},
+		{"mjs script", "/j/a.mjs", "script-src 'self' " + host},
+		{"css style", "/s/a.css", "style-src 'self' 'unsafe-inline' " + host},
+		{"png image", "/i/a.png", "img-src 'self' data: " + host},
+		{"svg image", "/i/a.svg", "img-src 'self' data: " + host},
+		{"ico image", "/i/a.ico", "img-src 'self' data: " + host},
+		{"woff font", "/f/a.woff", "font-src 'self' " + host},
+		{"woff2 font", "/f/a.woff2", "font-src 'self' " + host},
+		{"ttf font", "/f/a.ttf", "font-src 'self' " + host},
+		{"otf font", "/f/a.otf", "font-src 'self' " + host},
+		{"eot font", "/f/a.eot", "font-src 'self' " + host},
+		{"uppercase extension", "/f/A.WOFF2", "font-src 'self' " + host},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			u := mustParseURL(t, host+tc.path)
+			got := secureheaders.BuildContentSecurityPolicy([]*url.URL{u})
+			if !strings.Contains(got, tc.wantSub) {
+				t.Fatalf("expected %q in CSP, got: %q", tc.wantSub, got)
+			}
+		})
+	}
+}
+
+func TestSecureHeaders_BuildContentSecurityPolicy_UnknownExtensionDropped(t *testing.T) {
+	urls := []*url.URL{
+		mustParseURL(t, "https://cdn.example.com/asset.bogus"),
+	}
+	got := secureheaders.BuildContentSecurityPolicy(urls)
+	if strings.Contains(got, "cdn.example.com") {
+		t.Fatalf("expected unknown extension to be dropped, got: %q", got)
+	}
+}
