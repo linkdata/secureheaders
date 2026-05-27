@@ -43,8 +43,8 @@ func SetHeaders(src http.Header, hw http.ResponseWriter, ishttps bool) {
 //
 // The embedded Handler must be non-nil.
 type Middleware struct {
-	http.Handler // Handler receives the request after security headers are set.
-	http.Header  // The headers to set. If nil, uses the default security headers.
+	http.Handler             // Handler receives the request after security headers are set.
+	Header       http.Header // The headers to set. If nil, uses the default security headers.
 	// TrustForwardedHeaders enables forwarded-header HTTPS detection
 	// (X-Forwarded-Ssl, Front-End-Https, X-Forwarded-Proto and Forwarded).
 	// Enable only when these headers are set and sanitized by trusted
