@@ -8,7 +8,7 @@ import (
 
 var defaultHeaders = http.Header{
 	"Referrer-Policy":            {"strict-origin-when-cross-origin"},
-	"Content-Security-Policy":    {"default-src 'self'; frame-ancestors 'none'"},
+	"Content-Security-Policy":    {BuildContentSecurityPolicy(nil)},
 	"X-Content-Type-Options":     {"nosniff"},
 	"X-Frame-Options":            {"DENY"},
 	"X-Xss-Protection":           {"0"},

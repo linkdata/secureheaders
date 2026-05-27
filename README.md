@@ -13,7 +13,7 @@ HTTP response headers.
 `SetHeaders` sets:
 
 - `Referrer-Policy: strict-origin-when-cross-origin`
-- `Content-Security-Policy: default-src 'self'; frame-ancestors 'none'`
+- `Content-Security-Policy: default-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'`
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: DENY`
 - `X-Xss-Protection: 0`

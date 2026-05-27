@@ -10,7 +10,7 @@ import (
 
 var wantDefaultHeaders = map[string]string{
 	"Referrer-Policy":            "strict-origin-when-cross-origin",
-	"Content-Security-Policy":    "default-src 'self'; frame-ancestors 'none'",
+	"Content-Security-Policy":    secureheaders.BuildContentSecurityPolicy(nil),
 	"X-Content-Type-Options":     "nosniff",
 	"X-Frame-Options":            "DENY",
 	"X-Xss-Protection":           "0",
@@ -27,6 +27,13 @@ func TestSecureHeaders_DefaultHeaders(t *testing.T) {
 	}
 	if got := hdr.Get("Strict-Transport-Security"); got != "max-age=31536000; includeSubDomains" {
 		t.Errorf("Strict-Transport-Security: expected %q, got %q", "max-age=31536000; includeSubDomains", got)
+	}
+}
+
+func TestSecureHeaders_DefaultHeaders_CSPMatchesBuilderBaseline(t *testing.T) {
+	hdr := secureheaders.DefaultHeaders()
+	if got, want := hdr.Get("Content-Security-Policy"), secureheaders.BuildContentSecurityPolicy(nil); got != want {
+		t.Fatalf("expected default CSP to match builder baseline:\nwant: %q\ngot:  %q", want, got)
 	}
 }
 
