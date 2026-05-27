@@ -1,6 +1,7 @@
 package secureheaders
 
 import (
+	"maps"
 	"net/url"
 	"path"
 	"slices"
@@ -56,11 +57,7 @@ func BuildContentSecurityPolicy(resourceURLs []*url.URL) (value string) {
 }
 
 func cspDirective(name string, defaults []string, extras map[string]struct{}) string {
-	var values []string
-	for extra := range extras {
-		values = append(values, extra)
-	}
-	slices.Sort(values)
+	values := slices.Sorted(maps.Keys(extras))
 	// slices.Concat allocates a fresh slice, so defaults is never mutated even
 	// when a caller passes a slice with spare capacity.
 	return name + " " + strings.Join(slices.Concat(defaults, values), " ")
