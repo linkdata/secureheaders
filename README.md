@@ -17,6 +17,7 @@ HTTP response headers.
 - `X-Content-Type-Options: nosniff`
 - `X-Frame-Options: DENY`
 - `X-Xss-Protection: 0`
+- `Cross-Origin-Opener-Policy: same-origin-allow-popups`
 - `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()`
 
 If the request is considered HTTPS, it also sets:

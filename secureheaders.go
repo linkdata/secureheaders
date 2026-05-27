@@ -7,13 +7,14 @@ import (
 )
 
 var defaultHeaders = http.Header{
-	"Referrer-Policy":           {"strict-origin-when-cross-origin"},
-	"Content-Security-Policy":   {"default-src 'self'; frame-ancestors 'none'"},
-	"X-Content-Type-Options":    {"nosniff"},
-	"X-Frame-Options":           {"DENY"},
-	"X-Xss-Protection":          {"0"},
-	"Permissions-Policy":        {"camera=(), microphone=(), geolocation=(), payment=()"},
-	"Strict-Transport-Security": {"max-age=31536000; includeSubDomains"},
+	"Referrer-Policy":            {"strict-origin-when-cross-origin"},
+	"Content-Security-Policy":    {"default-src 'self'; frame-ancestors 'none'"},
+	"X-Content-Type-Options":     {"nosniff"},
+	"X-Frame-Options":            {"DENY"},
+	"X-Xss-Protection":           {"0"},
+	"Cross-Origin-Opener-Policy": {"same-origin-allow-popups"},
+	"Permissions-Policy":         {"camera=(), microphone=(), geolocation=(), payment=()"},
+	"Strict-Transport-Security":  {"max-age=31536000; includeSubDomains"},
 }
 
 // DefaultHeaders returns a copy of the default security headers used by SetHeaders.

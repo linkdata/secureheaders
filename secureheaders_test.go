@@ -9,12 +9,13 @@ import (
 )
 
 var wantDefaultHeaders = map[string]string{
-	"Referrer-Policy":         "strict-origin-when-cross-origin",
-	"Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'",
-	"X-Content-Type-Options":  "nosniff",
-	"X-Frame-Options":         "DENY",
-	"X-Xss-Protection":        "0",
-	"Permissions-Policy":      "camera=(), microphone=(), geolocation=(), payment=()",
+	"Referrer-Policy":            "strict-origin-when-cross-origin",
+	"Content-Security-Policy":    "default-src 'self'; frame-ancestors 'none'",
+	"X-Content-Type-Options":     "nosniff",
+	"X-Frame-Options":            "DENY",
+	"X-Xss-Protection":           "0",
+	"Cross-Origin-Opener-Policy": "same-origin-allow-popups",
+	"Permissions-Policy":         "camera=(), microphone=(), geolocation=(), payment=()",
 }
 
 func TestSecureHeaders_DefaultHeaders(t *testing.T) {
