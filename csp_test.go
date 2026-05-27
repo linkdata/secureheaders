@@ -193,6 +193,25 @@ func TestSecureHeaders_BuildContentSecurityPolicy_ResourceTypeDetection(t *testi
 	}
 }
 
+func TestSecureHeaders_BuildContentSecurityPolicy_HostCaseFolded(t *testing.T) {
+	urls := []*url.URL{
+		mustParseURL(t, "https://CDN.Example.com/a.js"),
+		mustParseURL(t, "https://cdn.example.com/b.js"),
+	}
+	got := secureheaders.BuildContentSecurityPolicy(urls)
+	if !strings.Contains(got, "script-src 'self' https://cdn.example.com") {
+		t.Fatalf("expected lowercased host source, got: %q", got)
+	}
+	// The two URLs differ only in host case, so they must collapse to a
+	// single source rather than appearing twice.
+	if n := strings.Count(got, "cdn.example.com"); n != 1 {
+		t.Fatalf("expected host to appear once, appeared %d times: %q", n, got)
+	}
+	if strings.Contains(got, "CDN.Example.com") {
+		t.Fatalf("expected host to be lowercased, got: %q", got)
+	}
+}
+
 func TestSecureHeaders_BuildContentSecurityPolicy_UnknownExtensionDropped(t *testing.T) {
 	urls := []*url.URL{
 		mustParseURL(t, "https://cdn.example.com/asset.bogus"),

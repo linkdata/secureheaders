@@ -131,7 +131,10 @@ func cspSourceExpr(u *url.URL) (src string) {
 	switch scheme {
 	case "http", "https", "ws", "wss":
 		if u.Host != "" {
-			src = scheme + "://" + u.Host
+			// Hosts are case-insensitive in CSP source matching, so lowercase
+			// to keep the scheme handling consistent and avoid emitting two
+			// redundant entries for sources that differ only in host case.
+			src = scheme + "://" + strings.ToLower(u.Host)
 		}
 	}
 	return
