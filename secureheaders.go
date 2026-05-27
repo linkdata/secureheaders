@@ -49,6 +49,9 @@ type Middleware struct {
 	TrustForwardedHeaders bool
 }
 
+// ServeHTTP sets the security headers on the response and then delegates to the
+// wrapped Handler. Strict-Transport-Security is included only when the request
+// is considered secure (see RequestIsSecure and TrustForwardedHeaders).
 func (m Middleware) ServeHTTP(hw http.ResponseWriter, hr *http.Request) {
 	SetHeaders(m.Header, hw, RequestIsSecure(hr, m.TrustForwardedHeaders))
 	m.Handler.ServeHTTP(hw, hr)
