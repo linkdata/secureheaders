@@ -22,9 +22,11 @@ import (
 // with hosts are supported. A scheme-relative URL produces a schemeless
 // source. For an HTTP protected resource it permits HTTP and HTTPS; for HTTPS
 // it permits HTTPS only. It does not permit WebSocket connections; use an
-// explicit ws:// or wss:// URL for those. Resources with nil URLs, hosts
-// outside the CSP host-source grammar, unsupported schemes or unknown
-// destinations do not contribute a source.
+// explicit ws:// or wss:// URL for those. A scheme-relative * host without a
+// port is ignored. Internationalized hostnames must use their ASCII A-label
+// (Punycode) form. Resources with nil URLs, hosts outside the CSP host-source
+// grammar, unsupported schemes or unknown destinations do not contribute a
+// source.
 //
 // Resources must come from trusted application configuration. Callers are
 // responsible for parsing and validating URLs; this function does not sanitize
@@ -146,10 +148,14 @@ func resourceDestinationForURL(u *url.URL) (destination ResourceDestination) {
 }
 
 func cspSourceExpr(u *url.URL) (src string) {
-	if validCSPHost(u.Host) {
+	if cspHostPattern.MatchString(u.Host) {
 		switch scheme := strings.ToLower(u.Scheme); scheme {
 		case "":
-			src = strings.ToLower(u.Host)
+			// CSP gives the exact source expression "*" broader wildcard
+			// semantics than a schemeless host-source, so do not emit it.
+			if u.Host != "*" {
+				src = strings.ToLower(u.Host)
+			}
 		case "http", "https", "ws", "wss":
 			// Hosts are case-insensitive in CSP source matching, so lowercase
 			// to keep the scheme handling consistent and avoid emitting two
@@ -160,9 +166,12 @@ func cspSourceExpr(u *url.URL) (src string) {
 	return
 }
 
+// cspHostPattern matches a CSP Level 3 host-part and optional port-part:
+//
+//	host-part = "*" / [ "*." ] 1*host-char *( "." 1*host-char ) [ "." ]
+//	host-char = ALPHA / DIGIT / "-"
+//	port-part = 1*DIGIT / "*"
+//
+// The grammar permits CSP wildcards and a trailing FQDN root dot. Its
+// ASCII-only host-char requires A-label (Punycode) internationalized names.
 var cspHostPattern = regexp.MustCompile(`^(?:\*|(?:\*\.)?[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.?)(?::(?:[0-9]+|\*))?$`)
-
-func validCSPHost(host string) (valid bool) {
-	valid = cspHostPattern.MatchString(host)
-	return
-}

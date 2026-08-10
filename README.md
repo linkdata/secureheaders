@@ -104,17 +104,18 @@ Behavior:
   Nil URLs, URLs without hosts, unsupported schemes and unknown destinations
   are ignored.
 - Hosts must match the CSP host-source grammar. IPv6 literals and hostnames
-  containing underscores are ignored.
+  containing underscores are ignored; internationalized hostnames must use
+  their ASCII A-label (Punycode) form.
 - A scheme-relative URL produces a schemeless source. For an HTTP protected
   resource it permits HTTP and HTTPS; for HTTPS it permits HTTPS only. It does
   not permit WebSocket connections; use an explicit `ws://` or `wss://` URL
-  for those.
+  for those. A scheme-relative `*` host without a port is ignored.
 
 Example:
 
 ```go
 stylesheet := &url.URL{Scheme: "https", Host: "cdn.example.com", Path: "/site.css"}
-module := &url.URL{Scheme: "https", Host: "cdn.example.com", Path: "/module.wasm"}
+module := &url.URL{Scheme: "https", Host: "modules.example.com", Path: "/module.wasm"}
 
 csp := secureheaders.BuildContentSecurityPolicy(
 	secureheaders.Resource{URL: stylesheet},

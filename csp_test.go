@@ -122,6 +122,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_IgnoresInvalidResources(t *tes
 		{name: "HTTPS without host", resource: secureheaders.Resource{URL: mustParseURL(t, "https:/app.js")}},
 		{name: "WebSocket without host", resource: secureheaders.Resource{URL: mustParseURL(t, "ws:/socket")}},
 		{name: "unsupported scheme", resource: secureheaders.Resource{URL: mustParseURL(t, "ftp://files.example.com/app.js")}},
+		{name: "scheme-relative bare wildcard", resource: secureheaders.Resource{URL: &url.URL{Host: "*", Path: "/app.js"}}},
 		{name: "unknown destination", resource: secureheaders.Resource{
 			URL:         mustParseURL(t, "https://invalid.example.com/app.js"),
 			Destination: secureheaders.ResourceDestination(255),
@@ -189,10 +190,23 @@ func TestSecureHeaders_BuildContentSecurityPolicy_CSPHostSources(t *testing.T) {
 }
 
 func TestSecureHeaders_BuildContentSecurityPolicy_SchemeRelativeResource(t *testing.T) {
-	u := mustParseURL(t, "//CDN.Example.com:8443/app.js")
-	got := secureheaders.BuildContentSecurityPolicy(autoResources(u)...)
-	if !strings.Contains(got, "script-src 'self' cdn.example.com:8443") {
-		t.Fatalf("expected scheme-relative script source, got: %q", got)
+	tests := []struct {
+		name   string
+		host   string
+		source string
+	}{
+		{name: "hostname", host: "CDN.Example.com:8443", source: "cdn.example.com:8443"},
+		{name: "wildcard host and port", host: "*:*", source: "*:*"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			u := &url.URL{Host: tc.host, Path: "/app.js"}
+			got := secureheaders.BuildContentSecurityPolicy(autoResources(u)...)
+			want := strings.Replace(defaultCSP, "script-src 'self'", "script-src 'self' "+tc.source, 1)
+			if got != want {
+				t.Fatalf("unexpected scheme-relative CSP:\nwant: %q\ngot:  %q", want, got)
+			}
+		})
 	}
 }
 
