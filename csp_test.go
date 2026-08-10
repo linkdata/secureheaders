@@ -9,6 +9,17 @@ import (
 	"github.com/linkdata/secureheaders"
 )
 
+const defaultCSP = "default-src 'self'; " +
+	"frame-ancestors 'none'; " +
+	"object-src 'none'; " +
+	"base-uri 'self'; " +
+	"form-action 'self'; " +
+	"script-src 'self'; " +
+	"style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data:; " +
+	"font-src 'self'; " +
+	"connect-src 'self'"
+
 func mustParseURL(t *testing.T, raw string) *url.URL {
 	t.Helper()
 	u, err := url.Parse(raw)
@@ -26,16 +37,6 @@ func autoResources(urls ...*url.URL) (resources []secureheaders.Resource) {
 }
 
 func TestSecureHeaders_BuildContentSecurityPolicy_Default(t *testing.T) {
-	want := "default-src 'self'; " +
-		"frame-ancestors 'none'; " +
-		"object-src 'none'; " +
-		"base-uri 'self'; " +
-		"form-action 'self'; " +
-		"script-src 'self'; " +
-		"style-src 'self' 'unsafe-inline'; " +
-		"img-src 'self' data:; " +
-		"font-src 'self'; " +
-		"connect-src 'self'"
 	for _, tc := range []struct {
 		name      string
 		resources []secureheaders.Resource
@@ -44,8 +45,8 @@ func TestSecureHeaders_BuildContentSecurityPolicy_Default(t *testing.T) {
 		{name: "empty", resources: []secureheaders.Resource{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := secureheaders.BuildContentSecurityPolicy(tc.resources); got != want {
-				t.Fatalf("unexpected default CSP:\nwant: %q\ngot:  %q", want, got)
+			if got := secureheaders.BuildContentSecurityPolicy(tc.resources...); got != defaultCSP {
+				t.Fatalf("unexpected default CSP:\nwant: %q\ngot:  %q", defaultCSP, got)
 			}
 		})
 	}
@@ -61,7 +62,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_AutoDestinations(t *testing.T)
 		mustParseURL(t, "https://ignored.example.com/module.wasm"),
 	)
 
-	got := secureheaders.BuildContentSecurityPolicy(resources)
+	got := secureheaders.BuildContentSecurityPolicy(resources...)
 	want := "default-src 'self'; " +
 		"frame-ancestors 'none'; " +
 		"object-src 'none'; " +
@@ -91,16 +92,9 @@ func TestSecureHeaders_BuildContentSecurityPolicy_ExplicitDestinations(t *testin
 		{URL: mustParseURL(t, "wss://events.example.com/socket"), Destination: secureheaders.ResourceDestinationConnect},
 		{URL: mustParseURL(t, "//Protocol.Example.com:9443/resource"), Destination: secureheaders.ResourceDestinationConnect},
 		{URL: mustParseURL(t, "https://api.example.com/duplicate"), Destination: secureheaders.ResourceDestinationConnect},
-		{},
-		{URL: nil, Destination: secureheaders.ResourceDestinationConnect},
-		{URL: mustParseURL(t, "/relative/resource"), Destination: secureheaders.ResourceDestinationConnect},
-		{URL: mustParseURL(t, "https:/missing-host"), Destination: secureheaders.ResourceDestinationConnect},
-		{URL: mustParseURL(t, "ws:/missing-host"), Destination: secureheaders.ResourceDestinationConnect},
-		{URL: mustParseURL(t, "ftp://files.example.com/resource"), Destination: secureheaders.ResourceDestinationConnect},
-		{URL: mustParseURL(t, "https://invalid.example.com/app.js"), Destination: secureheaders.ResourceDestination(255)},
 	}
 
-	got := secureheaders.BuildContentSecurityPolicy(resources)
+	got := secureheaders.BuildContentSecurityPolicy(resources...)
 	want := "default-src 'self'; " +
 		"frame-ancestors 'none'; " +
 		"object-src 'none'; " +
@@ -117,9 +111,86 @@ func TestSecureHeaders_BuildContentSecurityPolicy_ExplicitDestinations(t *testin
 	}
 }
 
+func TestSecureHeaders_BuildContentSecurityPolicy_IgnoresInvalidResources(t *testing.T) {
+	tests := []struct {
+		name     string
+		resource secureheaders.Resource
+	}{
+		{name: "zero resource"},
+		{name: "nil URL", resource: secureheaders.Resource{Destination: secureheaders.ResourceDestinationConnect}},
+		{name: "relative URL", resource: secureheaders.Resource{URL: mustParseURL(t, "/relative/app.js")}},
+		{name: "HTTPS without host", resource: secureheaders.Resource{URL: mustParseURL(t, "https:/app.js")}},
+		{name: "WebSocket without host", resource: secureheaders.Resource{URL: mustParseURL(t, "ws:/socket")}},
+		{name: "unsupported scheme", resource: secureheaders.Resource{URL: mustParseURL(t, "ftp://files.example.com/app.js")}},
+		{name: "unknown destination", resource: secureheaders.Resource{
+			URL:         mustParseURL(t, "https://invalid.example.com/app.js"),
+			Destination: secureheaders.ResourceDestination(255),
+		}},
+		{name: "directive delimiter", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "cdn.example.com;script-src", Path: "/app.js"}}},
+		{name: "policy delimiter", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "cdn.example.com,default-src", Path: "/app.js"}}},
+		{name: "space", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "cdn.example.com evil.example.com", Path: "/app.js"}}},
+		{name: "line break", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "cdn.example.com\r\nscript-src *", Path: "/app.js"}}},
+		{name: "underscore", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "internal_host.example", Path: "/app.js"}}},
+		{name: "IPv6", resource: secureheaders.Resource{URL: mustParseURL(t, "https://[2001:db8::1]:443/app.js")}},
+		{name: "empty first label", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: ".example.com", Path: "/app.js"}}},
+		{name: "empty label", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "cdn..example.com", Path: "/app.js"}}},
+		{name: "invalid wildcard", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "*cdn.example.com", Path: "/app.js"}}},
+		{name: "nested wildcard", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "cdn.*.example.com", Path: "/app.js"}}},
+		{name: "empty host with port", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: ":443", Path: "/app.js"}}},
+		{name: "dot host with port", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: ".:443", Path: "/app.js"}}},
+		{name: "empty wildcard host with port", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "*.:443", Path: "/app.js"}}},
+		{name: "empty port", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "cdn.example.com:", Path: "/app.js"}}},
+		{name: "invalid port", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "cdn.example.com:http", Path: "/app.js"}}},
+		{name: "invalid wildcard port", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "*:http", Path: "/app.js"}}},
+		{name: "mixed wildcard port", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "cdn.example.com:*1", Path: "/app.js"}}},
+		{name: "multiple ports", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "cdn.example.com:80:90", Path: "/app.js"}}},
+		{name: "userinfo delimiter", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "user@cdn.example.com", Path: "/app.js"}}},
+		{name: "path delimiter", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "cdn.example.com/path", Path: "/app.js"}}},
+		{name: "Unicode host", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "café.example", Path: "/app.js"}}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := secureheaders.BuildContentSecurityPolicy(tc.resource); got != defaultCSP {
+				t.Fatalf("unexpected CSP for ignored resource:\nwant: %q\ngot:  %q", defaultCSP, got)
+			}
+		})
+	}
+}
+
+func TestSecureHeaders_BuildContentSecurityPolicy_CSPHostSources(t *testing.T) {
+	tests := []struct {
+		name   string
+		host   string
+		source string
+	}{
+		{name: "hostname and port", host: "CDN.Example.com:8443", source: "https://cdn.example.com:8443"},
+		{name: "wildcard hostname", host: "*.CDN.Example.com", source: "https://*.cdn.example.com"},
+		{name: "bare wildcard", host: "*", source: "https://*"},
+		{name: "wildcard host and port", host: "*:*", source: "https://*:*"},
+		{name: "wildcard port", host: "CDN.Example.com:*", source: "https://cdn.example.com:*"},
+		{name: "trailing dot", host: "CDN.Example.com.", source: "https://cdn.example.com."},
+		{name: "combined wildcard", host: "*.CDN.Example.com.:*", source: "https://*.cdn.example.com.:*"},
+		{name: "hyphen label", host: "-edge.Example.com", source: "https://-edge.example.com"},
+		{name: "Punycode", host: "xn--bcher-kva.Example", source: "https://xn--bcher-kva.example"},
+		{name: "IPv4", host: "192.0.2.1:8443", source: "https://192.0.2.1:8443"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			resource := secureheaders.Resource{
+				URL:         &url.URL{Scheme: "https", Host: tc.host, Path: "/app.js"},
+				Destination: secureheaders.ResourceDestinationScript,
+			}
+			want := strings.Replace(defaultCSP, "script-src 'self'", "script-src 'self' "+tc.source, 1)
+			if got := secureheaders.BuildContentSecurityPolicy(resource); got != want {
+				t.Fatalf("unexpected CSP host source:\nwant: %q\ngot:  %q", want, got)
+			}
+		})
+	}
+}
+
 func TestSecureHeaders_BuildContentSecurityPolicy_SchemeRelativeResource(t *testing.T) {
 	u := mustParseURL(t, "//CDN.Example.com:8443/app.js")
-	got := secureheaders.BuildContentSecurityPolicy(autoResources(u))
+	got := secureheaders.BuildContentSecurityPolicy(autoResources(u)...)
 	if !strings.Contains(got, "script-src 'self' cdn.example.com:8443") {
 		t.Fatalf("expected scheme-relative script source, got: %q", got)
 	}
@@ -128,16 +199,12 @@ func TestSecureHeaders_BuildContentSecurityPolicy_SchemeRelativeResource(t *test
 func TestSecureHeaders_BuildContentSecurityPolicy_ValidSourcesWithPorts(t *testing.T) {
 	urls := []*url.URL{
 		mustParseURL(t, "https://cdn.example.com:8443/app.js"),
-		mustParseURL(t, "https://[2001:db8::1]:443/font.woff2"),
 		mustParseURL(t, "wss://events.example.com:8443/socket"),
 	}
 
-	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...))
+	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...)...)
 	if !strings.Contains(got, "script-src 'self' https://cdn.example.com:8443") {
 		t.Fatalf("expected HTTPS source with port, got: %q", got)
-	}
-	if !strings.Contains(got, "font-src 'self' https://[2001:db8::1]:443") {
-		t.Fatalf("expected IPv6 source with port, got: %q", got)
 	}
 	if !strings.Contains(got, "connect-src 'self' wss://events.example.com:8443") {
 		t.Fatalf("expected WSS source with port, got: %q", got)
@@ -148,7 +215,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_StyleSourceAlsoAllowsFonts(t *
 	urls := []*url.URL{
 		mustParseURL(t, "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.min.css"),
 	}
-	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...))
+	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...)...)
 	if !strings.Contains(got, "font-src 'self' https://cdn.jsdelivr.net") {
 		t.Fatalf("expected stylesheet source to be added to font-src, got: %q", got)
 	}
@@ -158,7 +225,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_FontExtensionWithQuery(t *test
 	urls := []*url.URL{
 		mustParseURL(t, "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/fonts/bootstrap-icons.woff2?1fa40e"),
 	}
-	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...))
+	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...)...)
 	if !strings.Contains(got, "font-src 'self' https://cdn.jsdelivr.net") {
 		t.Fatalf("expected explicit .woff2 source in font-src, got: %q", got)
 	}
@@ -168,7 +235,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_FontByExtension(t *testing.T) 
 	urls := []*url.URL{
 		mustParseURL(t, "https://cdn.jsdelivr.net/fonts/family.ttc"),
 	}
-	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...))
+	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...)...)
 	if !strings.Contains(got, "font-src 'self' https://cdn.jsdelivr.net") {
 		t.Fatalf("expected .ttc source in font-src, got: %q", got)
 	}
@@ -199,7 +266,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_MIMEFallback(t *testing.T) {
 				t.Fatalf("AddExtensionType: %v", err)
 			}
 			u := mustParseURL(t, host+"/asset"+tc.ext)
-			got := secureheaders.BuildContentSecurityPolicy(autoResources(u))
+			got := secureheaders.BuildContentSecurityPolicy(autoResources(u)...)
 			if tc.wantSub == "" {
 				if strings.Contains(got, host) {
 					t.Fatalf("expected unmatched MIME type to be dropped, got: %q", got)
@@ -236,7 +303,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_ResourceTypeDetection(t *testi
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			u := mustParseURL(t, host+tc.path)
-			got := secureheaders.BuildContentSecurityPolicy(autoResources(u))
+			got := secureheaders.BuildContentSecurityPolicy(autoResources(u)...)
 			if !strings.Contains(got, tc.wantSub) {
 				t.Fatalf("expected %q in CSP, got: %q", tc.wantSub, got)
 			}
@@ -249,7 +316,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_HostCaseFolded(t *testing.T) {
 		mustParseURL(t, "https://CDN.Example.com/a.js"),
 		mustParseURL(t, "https://cdn.example.com/b.js"),
 	}
-	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...))
+	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...)...)
 	if !strings.Contains(got, "script-src 'self' https://cdn.example.com") {
 		t.Fatalf("expected lowercased host source, got: %q", got)
 	}
@@ -267,7 +334,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_UnknownExtensionDropped(t *tes
 	urls := []*url.URL{
 		mustParseURL(t, "https://cdn.example.com/asset.bogus"),
 	}
-	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...))
+	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...)...)
 	if strings.Contains(got, "cdn.example.com") {
 		t.Fatalf("expected unknown extension to be dropped, got: %q", got)
 	}

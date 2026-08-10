@@ -36,6 +36,9 @@ const (
 	ResourceDestinationScript
 
 	// ResourceDestinationStyle selects style-src.
+	//
+	// It does not also select font-src. List the resource with
+	// [ResourceDestinationFont] to permit both directives.
 	ResourceDestinationStyle
 
 	// ResourceDestinationImage selects img-src.

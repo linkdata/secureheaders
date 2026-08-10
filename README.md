@@ -67,7 +67,7 @@ For list-valued forwarding headers, the first hop is used.
 
 ## CSP builder
 
-`BuildContentSecurityPolicy(resources)` builds a `Content-Security-Policy`
+`BuildContentSecurityPolicy(resources...)` builds a `Content-Security-Policy`
 header value. Each `Resource` separates where a resource is located (`URL`)
 from how the browser requests it (`Destination`). The URL's scheme, host and
 port supply the CSP source expression; the destination selects the directive
@@ -95,24 +95,31 @@ Behavior:
       `font-src`;
     - inferred stylesheet sources are also added to `font-src`;
     - URLs whose extension matches neither are ignored.
-- An explicit destination bypasses inference and selects one CSP directive:
-  script, style, image, font or connect. Connect permits fetches,
+- An explicit destination bypasses inference and selects only its named CSP
+  directive: script, style, image, font or connect. Connect permits fetches,
   XMLHttpRequest, EventSource, `navigator.sendBeacon` and WebSocket.
-- The same URL may be listed with more than one destination.
+  `ResourceDestinationStyle` does not also select `font-src`; list a URL once
+  per required destination.
 - HTTP, HTTPS, WebSocket and scheme-relative URLs with hosts are supported.
   Nil URLs, URLs without hosts, unsupported schemes and unknown destinations
   are ignored.
+- Hosts must match the CSP host-source grammar. IPv6 literals and hostnames
+  containing underscores are ignored.
+- A scheme-relative URL produces a schemeless source. For an HTTP protected
+  resource it permits HTTP and HTTPS; for HTTPS it permits HTTPS only. It does
+  not permit WebSocket connections; use an explicit `ws://` or `wss://` URL
+  for those.
 
 Example:
 
 ```go
-stylesheet, _ := url.Parse("https://cdn.example.com/site.css")
-module, _ := url.Parse("https://cdn.example.com/module.wasm")
+stylesheet := &url.URL{Scheme: "https", Host: "cdn.example.com", Path: "/site.css"}
+module := &url.URL{Scheme: "https", Host: "cdn.example.com", Path: "/module.wasm"}
 
-csp := secureheaders.BuildContentSecurityPolicy([]secureheaders.Resource{
-	{URL: stylesheet},
-	{URL: module, Destination: secureheaders.ResourceDestinationConnect},
-})
+csp := secureheaders.BuildContentSecurityPolicy(
+	secureheaders.Resource{URL: stylesheet},
+	secureheaders.Resource{URL: module, Destination: secureheaders.ResourceDestinationConnect},
+)
 w.Header().Set("Content-Security-Policy", csp)
 ```
 
