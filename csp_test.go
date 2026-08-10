@@ -18,8 +18,14 @@ func mustParseURL(t *testing.T, raw string) *url.URL {
 	return u
 }
 
+func autoResources(urls ...*url.URL) (resources []secureheaders.Resource) {
+	for _, u := range urls {
+		resources = append(resources, secureheaders.Resource{URL: u})
+	}
+	return
+}
+
 func TestSecureHeaders_BuildContentSecurityPolicy_Default(t *testing.T) {
-	got := secureheaders.BuildContentSecurityPolicy(nil)
 	want := "default-src 'self'; " +
 		"frame-ancestors 'none'; " +
 		"object-src 'none'; " +
@@ -30,47 +36,92 @@ func TestSecureHeaders_BuildContentSecurityPolicy_Default(t *testing.T) {
 		"img-src 'self' data:; " +
 		"font-src 'self'; " +
 		"connect-src 'self'"
-	if got != want {
-		t.Fatalf("unexpected default CSP:\nwant: %q\ngot:  %q", want, got)
+	for _, tc := range []struct {
+		name      string
+		resources []secureheaders.Resource
+	}{
+		{name: "nil"},
+		{name: "empty", resources: []secureheaders.Resource{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := secureheaders.BuildContentSecurityPolicy(tc.resources); got != want {
+				t.Fatalf("unexpected default CSP:\nwant: %q\ngot:  %q", want, got)
+			}
+		})
 	}
 }
 
-func TestSecureHeaders_BuildContentSecurityPolicy_ExternalResources(t *testing.T) {
-	urls := []*url.URL{
-		mustParseURL(t, "https://cdn.jsdelivr.net/npm/bootstrap@5/dist/css/bootstrap.min.css"),
-		mustParseURL(t, "https://cdn.jsdelivr.net/npm/bootstrap@5/dist/js/bootstrap.min.js"),
-		mustParseURL(t, "https://cdn.jsdelivr.net/npm/bootstrap-icons/font/fonts/bootstrap-icons.woff2"),
+func TestSecureHeaders_BuildContentSecurityPolicy_AutoDestinations(t *testing.T) {
+	resources := autoResources(
+		mustParseURL(t, "https://scripts.example.com/app.js?version=1#fragment"),
+		mustParseURL(t, "https://styles.example.com/app.css"),
 		mustParseURL(t, "https://images.example.com/logo.png"),
-	}
-	got := secureheaders.BuildContentSecurityPolicy(urls)
-	if !strings.Contains(got, "script-src 'self' https://cdn.jsdelivr.net") {
-		t.Fatalf("expected script-src to include cdn source, got: %q", got)
-	}
-	if !strings.Contains(got, "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net") {
-		t.Fatalf("expected style-src to include cdn source, got: %q", got)
-	}
-	if !strings.Contains(got, "font-src 'self' https://cdn.jsdelivr.net") {
-		t.Fatalf("expected font-src to include cdn source, got: %q", got)
-	}
-	if !strings.Contains(got, "img-src 'self' data: https://images.example.com") {
-		t.Fatalf("expected img-src to include image source, got: %q", got)
-	}
-	if !strings.Contains(got, "connect-src 'self'") {
-		t.Fatalf("expected connect-src self baseline, got: %q", got)
+		mustParseURL(t, "https://fonts.example.com/font.woff2"),
+		&url.URL{Scheme: "WSS", Host: "Events.Example.com:8443", Path: "/socket.js"},
+		mustParseURL(t, "https://ignored.example.com/module.wasm"),
+	)
+
+	got := secureheaders.BuildContentSecurityPolicy(resources)
+	want := "default-src 'self'; " +
+		"frame-ancestors 'none'; " +
+		"object-src 'none'; " +
+		"base-uri 'self'; " +
+		"form-action 'self'; " +
+		"script-src 'self' https://scripts.example.com; " +
+		"style-src 'self' 'unsafe-inline' https://styles.example.com; " +
+		"img-src 'self' data: https://images.example.com; " +
+		"font-src 'self' https://fonts.example.com https://styles.example.com; " +
+		"connect-src 'self' wss://events.example.com:8443"
+	if got != want {
+		t.Fatalf("unexpected automatic-destination CSP:\nwant: %q\ngot:  %q", want, got)
 	}
 }
 
-func TestSecureHeaders_BuildContentSecurityPolicy_ConnectResource(t *testing.T) {
-	urls := []*url.URL{
-		mustParseURL(t, "wss://events.example.com/socket"),
-		mustParseURL(t, "https://cdn.example.com/asset.unknownext"),
+func TestSecureHeaders_BuildContentSecurityPolicy_ExplicitDestinations(t *testing.T) {
+	shared := mustParseURL(t, "https://Shared.Example.com:8443/module.png")
+	resources := []secureheaders.Resource{
+		{URL: shared, Destination: secureheaders.ResourceDestinationScript},
+		{URL: shared, Destination: secureheaders.ResourceDestinationConnect},
+		{URL: mustParseURL(t, "https://styles.example.com/app.js"), Destination: secureheaders.ResourceDestinationStyle},
+		{URL: mustParseURL(t, "https://images.example.com/picture.woff2"), Destination: secureheaders.ResourceDestinationImage},
+		{URL: mustParseURL(t, "https://fonts.example.com/font.css"), Destination: secureheaders.ResourceDestinationFont},
+		{URL: mustParseURL(t, "http://api.example.com/data"), Destination: secureheaders.ResourceDestinationConnect},
+		{URL: mustParseURL(t, "https://api.example.com/data"), Destination: secureheaders.ResourceDestinationConnect},
+		{URL: mustParseURL(t, "ws://events.example.com/socket"), Destination: secureheaders.ResourceDestinationConnect},
+		{URL: mustParseURL(t, "wss://events.example.com/socket"), Destination: secureheaders.ResourceDestinationConnect},
+		{URL: mustParseURL(t, "//Protocol.Example.com:9443/resource"), Destination: secureheaders.ResourceDestinationConnect},
+		{URL: mustParseURL(t, "https://api.example.com/duplicate"), Destination: secureheaders.ResourceDestinationConnect},
+		{},
+		{URL: nil, Destination: secureheaders.ResourceDestinationConnect},
+		{URL: mustParseURL(t, "/relative/resource"), Destination: secureheaders.ResourceDestinationConnect},
+		{URL: mustParseURL(t, "https:/missing-host"), Destination: secureheaders.ResourceDestinationConnect},
+		{URL: mustParseURL(t, "ws:/missing-host"), Destination: secureheaders.ResourceDestinationConnect},
+		{URL: mustParseURL(t, "ftp://files.example.com/resource"), Destination: secureheaders.ResourceDestinationConnect},
+		{URL: mustParseURL(t, "https://invalid.example.com/app.js"), Destination: secureheaders.ResourceDestination(255)},
 	}
-	got := secureheaders.BuildContentSecurityPolicy(urls)
-	if !strings.Contains(got, "connect-src 'self' wss://events.example.com") {
-		t.Fatalf("expected connect-src to include wss source, got: %q", got)
+
+	got := secureheaders.BuildContentSecurityPolicy(resources)
+	want := "default-src 'self'; " +
+		"frame-ancestors 'none'; " +
+		"object-src 'none'; " +
+		"base-uri 'self'; " +
+		"form-action 'self'; " +
+		"script-src 'self' https://shared.example.com:8443; " +
+		"style-src 'self' 'unsafe-inline' https://styles.example.com; " +
+		"img-src 'self' data: https://images.example.com; " +
+		"font-src 'self' https://fonts.example.com; " +
+		"connect-src 'self' http://api.example.com https://api.example.com https://shared.example.com:8443 " +
+		"protocol.example.com:9443 ws://events.example.com wss://events.example.com"
+	if got != want {
+		t.Fatalf("unexpected explicit-destination CSP:\nwant: %q\ngot:  %q", want, got)
 	}
-	if strings.Contains(got, "cdn.example.com") {
-		t.Fatalf("unexpected unsupported resource source in CSP: %q", got)
+}
+
+func TestSecureHeaders_BuildContentSecurityPolicy_SchemeRelativeResource(t *testing.T) {
+	u := mustParseURL(t, "//CDN.Example.com:8443/app.js")
+	got := secureheaders.BuildContentSecurityPolicy(autoResources(u))
+	if !strings.Contains(got, "script-src 'self' cdn.example.com:8443") {
+		t.Fatalf("expected scheme-relative script source, got: %q", got)
 	}
 }
 
@@ -81,7 +132,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_ValidSourcesWithPorts(t *testi
 		mustParseURL(t, "wss://events.example.com:8443/socket"),
 	}
 
-	got := secureheaders.BuildContentSecurityPolicy(urls)
+	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...))
 	if !strings.Contains(got, "script-src 'self' https://cdn.example.com:8443") {
 		t.Fatalf("expected HTTPS source with port, got: %q", got)
 	}
@@ -97,7 +148,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_StyleSourceAlsoAllowsFonts(t *
 	urls := []*url.URL{
 		mustParseURL(t, "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.min.css"),
 	}
-	got := secureheaders.BuildContentSecurityPolicy(urls)
+	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...))
 	if !strings.Contains(got, "font-src 'self' https://cdn.jsdelivr.net") {
 		t.Fatalf("expected stylesheet source to be added to font-src, got: %q", got)
 	}
@@ -107,7 +158,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_FontExtensionWithQuery(t *test
 	urls := []*url.URL{
 		mustParseURL(t, "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/fonts/bootstrap-icons.woff2?1fa40e"),
 	}
-	got := secureheaders.BuildContentSecurityPolicy(urls)
+	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...))
 	if !strings.Contains(got, "font-src 'self' https://cdn.jsdelivr.net") {
 		t.Fatalf("expected explicit .woff2 source in font-src, got: %q", got)
 	}
@@ -117,7 +168,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_FontByExtension(t *testing.T) 
 	urls := []*url.URL{
 		mustParseURL(t, "https://cdn.jsdelivr.net/fonts/family.ttc"),
 	}
-	got := secureheaders.BuildContentSecurityPolicy(urls)
+	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...))
 	if !strings.Contains(got, "font-src 'self' https://cdn.jsdelivr.net") {
 		t.Fatalf("expected .ttc source in font-src, got: %q", got)
 	}
@@ -148,7 +199,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_MIMEFallback(t *testing.T) {
 				t.Fatalf("AddExtensionType: %v", err)
 			}
 			u := mustParseURL(t, host+"/asset"+tc.ext)
-			got := secureheaders.BuildContentSecurityPolicy([]*url.URL{u})
+			got := secureheaders.BuildContentSecurityPolicy(autoResources(u))
 			if tc.wantSub == "" {
 				if strings.Contains(got, host) {
 					t.Fatalf("expected unmatched MIME type to be dropped, got: %q", got)
@@ -185,7 +236,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_ResourceTypeDetection(t *testi
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			u := mustParseURL(t, host+tc.path)
-			got := secureheaders.BuildContentSecurityPolicy([]*url.URL{u})
+			got := secureheaders.BuildContentSecurityPolicy(autoResources(u))
 			if !strings.Contains(got, tc.wantSub) {
 				t.Fatalf("expected %q in CSP, got: %q", tc.wantSub, got)
 			}
@@ -198,7 +249,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_HostCaseFolded(t *testing.T) {
 		mustParseURL(t, "https://CDN.Example.com/a.js"),
 		mustParseURL(t, "https://cdn.example.com/b.js"),
 	}
-	got := secureheaders.BuildContentSecurityPolicy(urls)
+	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...))
 	if !strings.Contains(got, "script-src 'self' https://cdn.example.com") {
 		t.Fatalf("expected lowercased host source, got: %q", got)
 	}
@@ -216,7 +267,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_UnknownExtensionDropped(t *tes
 	urls := []*url.URL{
 		mustParseURL(t, "https://cdn.example.com/asset.bogus"),
 	}
-	got := secureheaders.BuildContentSecurityPolicy(urls)
+	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...))
 	if strings.Contains(got, "cdn.example.com") {
 		t.Fatalf("expected unknown extension to be dropped, got: %q", got)
 	}

@@ -67,8 +67,11 @@ For list-valued forwarding headers, the first hop is used.
 
 ## CSP builder
 
-`BuildContentSecurityPolicy(resourceURLs)` builds a
-`Content-Security-Policy` header value from known external resources.
+`BuildContentSecurityPolicy(resources)` builds a `Content-Security-Policy`
+header value. Each `Resource` separates where a resource is located (`URL`)
+from how the browser requests it (`Destination`). The URL's scheme, host and
+port supply the CSP source expression; the destination selects the directive
+that permits it. Paths, queries and fragments do not restrict the permission.
 
 Behavior:
 
@@ -77,33 +80,39 @@ Behavior:
   `base-uri 'self'; form-action 'self'; script-src 'self';`
   `style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self';`
   `connect-src 'self'`.
-- Includes `style-src 'unsafe-inline'` by default.
-- Expects `resourceURLs` to come from trusted application configuration; this
-  helper classifies known resources and does not sanitize arbitrary user input.
-- Adds external source expressions from `resourceURLs` by resource type:
-  - `ws://`/`wss://` URLs -> `connect-src`
+- Callers must parse and validate resource URLs from trusted application
+  configuration; the builder does not sanitize them.
+- `ResourceDestinationAuto`, the zero value, infers conventional resources:
+  - `ws://`/`wss://` URLs select `connect-src`;
   - all other URLs are classified by their file extension:
     - an explicit list of common script, style, image and font extensions
       (including web fonts such as `.woff2`, `.otf` and `.eot`) is consulted
       first;
-    - extensions not on that list fall back to the host's MIME database
+    - extensions not on that list fall back to the local MIME database
       (`mime.TypeByExtension`), mapping `text/javascript`,
       `application/javascript` and `application/ecmascript` -> `script-src`,
       `text/css` -> `style-src`, `image/*` -> `img-src` and `font/*` ->
       `font-src`;
-    - stylesheet sources are also added to `font-src`, since stylesheets
-      commonly reference webfonts via relative URLs;
+    - inferred stylesheet sources are also added to `font-src`;
     - URLs whose extension matches neither are ignored.
+- An explicit destination bypasses inference and selects one CSP directive:
+  script, style, image, font or connect. Connect permits fetches,
+  XMLHttpRequest, EventSource, `navigator.sendBeacon` and WebSocket.
+- The same URL may be listed with more than one destination.
+- HTTP, HTTPS, WebSocket and scheme-relative URLs with hosts are supported.
+  Nil URLs, URLs without hosts, unsupported schemes and unknown destinations
+  are ignored.
 
 Example:
 
 ```go
-u1, _ := url.Parse("https://cdn.jsdelivr.net/npm/bootstrap@5/dist/css/bootstrap.min.css")
-u2, _ := url.Parse("https://cdn.jsdelivr.net/npm/bootstrap@5/dist/js/bootstrap.min.js")
+stylesheet, _ := url.Parse("https://cdn.example.com/site.css")
+module, _ := url.Parse("https://cdn.example.com/module.wasm")
 
-csp := secureheaders.BuildContentSecurityPolicy(
-	[]*url.URL{u1, u2},
-)
+csp := secureheaders.BuildContentSecurityPolicy([]secureheaders.Resource{
+	{URL: stylesheet},
+	{URL: module, Destination: secureheaders.ResourceDestinationConnect},
+})
 w.Header().Set("Content-Security-Policy", csp)
 ```
 

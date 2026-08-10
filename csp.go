@@ -9,38 +9,50 @@ import (
 	"strings"
 )
 
-// BuildContentSecurityPolicy returns a CSP header value based on resource URLs.
+// BuildContentSecurityPolicy returns a Content-Security-Policy header value.
 //
-// The default policy includes style-src 'unsafe-inline'.
+// Each resource contributes a host source expression according to its
+// destination. [ResourceDestinationAuto] infers a destination from the URL;
+// inferred stylesheet sources are also permitted for fonts. The same URL may
+// be listed more than once with different explicit destinations.
 //
-// Resource URLs contribute external source expressions to script, style, image,
-// font and connect directives according to their type.
+// A nil or empty slice returns the default policy, which includes style-src
+// 'unsafe-inline'. HTTP, HTTPS, WebSocket and scheme-relative URLs with hosts
+// are supported. Resources with nil URLs, URLs without hosts, unsupported
+// schemes and unknown destinations do not contribute a source.
 //
-// The resource URLs are expected to come from trusted application configuration,
-// not from arbitrary user input. This function classifies known resources; it is
-// not a URL sanitizer.
-func BuildContentSecurityPolicy(resourceURLs []*url.URL) (value string) {
+// Resources must come from trusted application configuration. Callers are
+// responsible for parsing and validating URLs; this function does not sanitize
+// them.
+func BuildContentSecurityPolicy(resources []Resource) (value string) {
 	scriptSrc := make(map[string]struct{})
 	styleSrc := make(map[string]struct{})
 	imgSrc := make(map[string]struct{})
 	fontSrc := make(map[string]struct{})
 	connectSrc := make(map[string]struct{})
 
-	for _, u := range resourceURLs {
-		if u != nil {
-			if source := cspSourceExpr(u); source != "" {
-				switch cspDirectiveForURL(u) {
-				case "script":
+	for _, resource := range resources {
+		if resource.URL != nil {
+			destination := resource.Destination
+			inferred := destination == ResourceDestinationAuto
+			if inferred {
+				destination = resourceDestinationForURL(resource.URL)
+			}
+			if source := cspSourceExpr(resource.URL); source != "" {
+				switch destination {
+				case ResourceDestinationScript:
 					scriptSrc[source] = struct{}{}
-				case "style":
+				case ResourceDestinationStyle:
 					styleSrc[source] = struct{}{}
-					// Stylesheets commonly reference webfonts via relative URLs.
-					fontSrc[source] = struct{}{}
-				case "img":
+					if inferred {
+						// Inferred stylesheets may load relative fonts from the same source.
+						fontSrc[source] = struct{}{}
+					}
+				case ResourceDestinationImage:
 					imgSrc[source] = struct{}{}
-				case "font":
+				case ResourceDestinationFont:
 					fontSrc[source] = struct{}{}
-				case "connect":
+				case ResourceDestinationConnect:
 					connectSrc[source] = struct{}{}
 				}
 			}
@@ -70,65 +82,71 @@ func cspDirective(name string, defaults []string, extras map[string]struct{}) st
 	return name + " " + strings.Join(slices.Concat(defaults, values), " ")
 }
 
-// cspExtDirective maps a lowercased file extension (including the leading dot)
-// to the CSP directive group whose origin list should allow the resource.
+// cspExtDestination maps a lowercased file extension (including the leading
+// dot) to the inferred browser destination.
 //
 // It is consulted before mime.TypeByExtension so that detection is deterministic
 // for these extensions regardless of the host's MIME database, which is
 // incomplete for web fonts (for example, .otf and .eot) and varies across
 // operating systems and minimal container images. Extensions not listed here
 // fall back to MIME-based detection.
-var cspExtDirective = map[string]string{
-	".js":    "script",
-	".mjs":   "script",
-	".css":   "style",
-	".png":   "img",
-	".jpg":   "img",
-	".jpeg":  "img",
-	".gif":   "img",
-	".webp":  "img",
-	".avif":  "img",
-	".svg":   "img",
-	".ico":   "img",
-	".bmp":   "img",
-	".woff":  "font",
-	".woff2": "font",
-	".ttf":   "font",
-	".otf":   "font",
-	".ttc":   "font",
-	".eot":   "font",
+var cspExtDestination = map[string]ResourceDestination{
+	".js":    ResourceDestinationScript,
+	".mjs":   ResourceDestinationScript,
+	".css":   ResourceDestinationStyle,
+	".png":   ResourceDestinationImage,
+	".jpg":   ResourceDestinationImage,
+	".jpeg":  ResourceDestinationImage,
+	".gif":   ResourceDestinationImage,
+	".webp":  ResourceDestinationImage,
+	".avif":  ResourceDestinationImage,
+	".svg":   ResourceDestinationImage,
+	".ico":   ResourceDestinationImage,
+	".bmp":   ResourceDestinationImage,
+	".woff":  ResourceDestinationFont,
+	".woff2": ResourceDestinationFont,
+	".ttf":   ResourceDestinationFont,
+	".otf":   ResourceDestinationFont,
+	".ttc":   ResourceDestinationFont,
+	".eot":   ResourceDestinationFont,
 }
 
-func cspDirectiveForURL(u *url.URL) string {
+func resourceDestinationForURL(u *url.URL) (destination ResourceDestination) {
 	switch strings.ToLower(u.Scheme) {
 	case "ws", "wss":
-		return "connect"
+		destination = ResourceDestinationConnect
+		return
 	}
 
 	ext := strings.ToLower(path.Ext(u.Path))
-	if directive, ok := cspExtDirective[ext]; ok {
-		return directive
+	if inferred, ok := cspExtDestination[ext]; ok {
+		destination = inferred
+		return
 	}
 
 	// Fall back to the host's MIME database for extensions not in the explicit map.
 	switch mimetype := mime.TypeByExtension(ext); {
 	case strings.HasPrefix(mimetype, "text/css"):
-		return "style"
+		destination = ResourceDestinationStyle
 	case strings.HasPrefix(mimetype, "text/javascript"),
 		strings.HasPrefix(mimetype, "application/javascript"),
 		strings.HasPrefix(mimetype, "application/ecmascript"):
-		return "script"
+		destination = ResourceDestinationScript
 	case strings.HasPrefix(mimetype, "image/"):
-		return "img"
+		destination = ResourceDestinationImage
 	case strings.HasPrefix(mimetype, "font/"):
-		return "font"
+		destination = ResourceDestinationFont
 	}
-	return ""
+	return
 }
 
 func cspSourceExpr(u *url.URL) (src string) {
 	scheme := strings.ToLower(u.Scheme)
 	switch scheme {
+	case "":
+		if u.Host != "" {
+			src = strings.ToLower(u.Host)
+		}
 	case "http", "https", "ws", "wss":
 		if u.Host != "" {
 			// Hosts are case-insensitive in CSP source matching, so lowercase
