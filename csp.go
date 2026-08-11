@@ -11,8 +11,7 @@ import (
 // BuildContentSecurityPolicy returns a Content-Security-Policy header value.
 //
 // Each resource contributes a host source expression according to its
-// destination. [ResourceDestinationAuto] infers a primary destination;
-// auto-inferred stylesheets also permit the same source for images and fonts.
+// destination. [ResourceDestinationAuto] applies its documented URL inference.
 // The same URL may be listed more than once with different explicit
 // destinations.
 //
@@ -20,12 +19,13 @@ import (
 // style-src 'unsafe-inline'. HTTP, HTTPS, WebSocket and scheme-relative URLs
 // with hosts are supported. A scheme-relative URL produces a schemeless
 // source. For an HTTP protected resource it permits HTTP and HTTPS; for HTTPS
-// it permits HTTPS only. It does not permit WebSocket connections; use an
-// explicit ws:// or wss:// URL for those. A scheme-relative * host without a
-// port is ignored. Internationalized hostnames must use their ASCII A-label
-// (Punycode) form. Resources with nil URLs, hosts outside the CSP host-source
-// grammar, unsupported schemes or unrecognized destination values do not
-// contribute a source.
+// it permits HTTPS only. HTTP, HTTPS and scheme-relative sources do not permit
+// WebSocket connections; use an explicit ws:// or wss:// URL for those. A
+// scheme-relative * host without a port is ignored. Internationalized hostnames
+// must use their ASCII A-label (Punycode) form. Resources with nil URLs, URLs
+// whose automatic destination cannot be inferred, hosts outside the CSP
+// host-source grammar, unsupported schemes or unrecognized explicit
+// destinations do not contribute a source.
 //
 // Resources must come from trusted application configuration. Callers are
 // responsible for parsing and validating URLs; this function does not sanitize
@@ -41,19 +41,22 @@ func BuildContentSecurityPolicy(resources ...Resource) (value string) {
 		if resource.URL != nil {
 			if source := cspSourceExpr(resource.URL); source != "" {
 				destination := resource.Destination
-				inferred := destination == ResourceDestinationAuto
-				if inferred {
-					destination, _ = InferResourceDestination(resource.URL)
+				automatic := destination == ResourceDestinationAuto
+				if automatic {
+					inferredDestination, recognized := InferPrimaryResourceDestination(resource.URL)
+					if !recognized {
+						continue
+					}
+					destination = inferredDestination
 				}
 				switch destination {
 				case ResourceDestinationScript:
 					scriptSrc[source] = struct{}{}
 				case ResourceDestinationStyle:
 					styleSrc[source] = struct{}{}
-					if inferred {
-						// Relative stylesheet images and fonts resolve against the
-						// stylesheet URL, so Auto permits the same source for them.
-						imgSrc[source] = struct{}{}
+					if automatic {
+						// Relative font URLs resolve against the stylesheet URL, so
+						// Auto permits the stylesheet's entire source in font-src.
 						fontSrc[source] = struct{}{}
 					}
 				case ResourceDestinationImage:

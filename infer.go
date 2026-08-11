@@ -7,30 +7,22 @@ import (
 	"strings"
 )
 
-// InferResourceDestination reports the conventional destination inferred for u.
+// InferPrimaryResourceDestination reports the primary destination inferred for u.
 //
-// It returns the primary destination used by [ResourceDestinationAuto].
-// Auto-inferred stylesheets also permit the same source for images and fonts.
-// The URL-based inference does not determine how an application actually
-// requests a resource; callers that know the request context should use an
-// explicit destination.
-//
-// It recognizes WebSocket schemes, common path extensions and registered MIME
-// types. Other HTTP, HTTPS, scheme-relative and relative URLs select
-// [ResourceDestinationConnect]. A nil URL or an unclassified URL with another
-// scheme returns ([ResourceDestinationAuto], false). Inference does not
-// validate whether the URL supplies a supported CSP host source.
-func InferResourceDestination(u *url.URL) (destination ResourceDestination, ok bool) {
+// A nil or unclassified URL returns ([ResourceDestinationAuto], false).
+// Recognition does not validate CSP source support or determine the
+// application's request context; use an explicit destination when the request
+// context is known. [ResourceDestinationAuto] may grant permissions beyond the
+// primary destination.
+func InferPrimaryResourceDestination(u *url.URL) (destination ResourceDestination, recognized bool) {
 	if u != nil {
 		switch strings.ToLower(u.Scheme) {
 		case "ws", "wss":
-			destination = ResourceDestinationConnect
-			ok = true
-			return
+			return ResourceDestinationConnect, true
 		}
 
 		ext := strings.ToLower(path.Ext(u.Path))
-		if destination, ok = resourceExtensionDestination[ext]; ok {
+		if destination, recognized = resourceExtensionDestination[ext]; recognized {
 			return
 		}
 
@@ -50,14 +42,7 @@ func InferResourceDestination(u *url.URL) (destination ResourceDestination, ok b
 					destination = ResourceDestinationFont
 				}
 			}
-			ok = destination != ResourceDestinationAuto
-		}
-		if !ok {
-			switch strings.ToLower(u.Scheme) {
-			case "", "http", "https":
-				destination = ResourceDestinationConnect
-				ok = true
-			}
+			recognized = destination != ResourceDestinationAuto
 		}
 	}
 	return

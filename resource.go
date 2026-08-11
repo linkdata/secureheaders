@@ -24,16 +24,14 @@ type Resource struct {
 type ResourceDestination uint8
 
 const (
-	// ResourceDestinationAuto infers a primary destination from the resource URL.
+	// ResourceDestinationAuto infers the destination from the resource URL.
 	//
-	// [InferResourceDestination] describes the primary inference.
-	//
-	// WebSocket URLs select [ResourceDestinationConnect]. Other conventional
-	// script, stylesheet, image and font resources are inferred from the URL's
-	// path extension and registered MIME type. MIME type matching is
-	// case-insensitive. Other HTTP, HTTPS, scheme-relative and relative resources
-	// select [ResourceDestinationConnect]. An inferred stylesheet source is also
-	// permitted for images and fonts.
+	// [InferPrimaryResourceDestination] reports the inferred primary destination.
+	// WebSocket URLs select [ResourceDestinationConnect]. Conventional script,
+	// stylesheet, image and font resources are inferred from the path extension
+	// and registered MIME type; MIME matching is case-insensitive. The stylesheet
+	// source expression is also added to font-src. Unclassified resources do not
+	// contribute a source.
 	ResourceDestinationAuto ResourceDestination = iota
 
 	// ResourceDestinationScript selects script-src.
@@ -41,9 +39,8 @@ const (
 
 	// ResourceDestinationStyle selects style-src.
 	//
-	// It does not also select img-src or font-src. List the resource with
-	// [ResourceDestinationImage] or [ResourceDestinationFont] to permit those
-	// directives.
+	// It does not also select font-src. List the resource with
+	// [ResourceDestinationFont] to permit both directives.
 	ResourceDestinationStyle
 
 	// ResourceDestinationImage selects img-src.
@@ -54,7 +51,8 @@ const (
 
 	// ResourceDestinationConnect selects connect-src.
 	//
-	// It permits fetch, XMLHttpRequest, EventSource, navigator.sendBeacon and
-	// WebSocket requests to the URL's source.
+	// Use an HTTP, HTTPS or scheme-relative URL for fetch, XMLHttpRequest,
+	// EventSource and navigator.sendBeacon. WebSocket connections require a ws
+	// or wss URL.
 	ResourceDestinationConnect
 )
