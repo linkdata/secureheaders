@@ -59,32 +59,28 @@ func BuildContentSecurityPolicy(resources ...Resource) (value string) {
 	connectSrc := make(map[string]struct{})
 
 	for _, resource := range resources {
-		if resource.URL != nil {
-			if source := cspSourceExpr(resource.URL); source != "" {
-				destinations := resource.Destination
-				if destinations == ResourceDestinationAuto {
-					if inferred, recognized := InferResourceDestinations(resource.URL); recognized {
-						destinations = inferred
-					}
-				}
-				if destinations&^resourceDestinationsAll != 0 {
-					continue
-				}
-				if destinations&ResourceDestinationScript != 0 {
-					scriptSrc[source] = struct{}{}
-				}
-				if destinations&ResourceDestinationStyle != 0 {
-					styleSrc[source] = struct{}{}
-				}
-				if destinations&ResourceDestinationImage != 0 {
-					imgSrc[source] = struct{}{}
-				}
-				if destinations&ResourceDestinationFont != 0 {
-					fontSrc[source] = struct{}{}
-				}
-				if destinations&ResourceDestinationConnect != 0 {
-					connectSrc[source] = struct{}{}
-				}
+		if source := ContentSecurityPolicySource(resource.URL); source != "" {
+			destinations := resource.Destination
+			if destinations == ResourceDestinationAuto {
+				destinations, _ = InferResource(resource.URL)
+			}
+			if destinations&^resourceDestinationsAll != 0 {
+				continue
+			}
+			if destinations&ResourceDestinationScript != 0 {
+				scriptSrc[source] = struct{}{}
+			}
+			if destinations&ResourceDestinationStyle != 0 {
+				styleSrc[source] = struct{}{}
+			}
+			if destinations&ResourceDestinationImage != 0 {
+				imgSrc[source] = struct{}{}
+			}
+			if destinations&ResourceDestinationFont != 0 {
+				fontSrc[source] = struct{}{}
+			}
+			if destinations&ResourceDestinationConnect != 0 {
+				connectSrc[source] = struct{}{}
 			}
 		}
 	}
@@ -118,20 +114,30 @@ func cspDirective(name string, defaults []string, extras map[string]struct{}) st
 	return name + " " + strings.Join(slices.Concat(defaults, values), " ")
 }
 
-func cspSourceExpr(u *url.URL) (src string) {
-	if cspHostPattern.MatchString(u.Host) {
+// ContentSecurityPolicySource returns the CSP host-source for u.
+//
+// It returns an empty string when no explicit host-source can be derived from
+// u. Hostless relative URLs contribute no explicit host-source but may remain
+// covered by the policy's 'self' sources. [BuildContentSecurityPolicy] uses the
+// same source rules. Only the scheme, host and port affect the result.
+// Destination inference is independent; use [InferResource] for that.
+//
+// URLs must come from trusted application configuration because a returned
+// expression grants its origin.
+func ContentSecurityPolicySource(u *url.URL) (source string) {
+	if u != nil && cspHostPattern.MatchString(u.Host) {
 		switch scheme := strings.ToLower(u.Scheme); scheme {
 		case "":
 			// CSP gives the exact source expression "*" broader wildcard
 			// semantics than a schemeless host-source, so do not emit it.
 			if u.Host != "*" {
-				src = strings.ToLower(u.Host)
+				source = strings.ToLower(u.Host)
 			}
 		case "http", "https", "ws", "wss":
 			// Hosts are case-insensitive in CSP source matching, so lowercase
 			// to keep the scheme handling consistent and avoid emitting two
 			// redundant entries for sources that differ only in host case.
-			src = scheme + "://" + strings.ToLower(u.Host)
+			source = scheme + "://" + strings.ToLower(u.Host)
 		}
 	}
 	return

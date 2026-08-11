@@ -31,7 +31,7 @@ type ResourceDestination uint32
 //
 // As the zero value, it applies when no explicit destination bits are set and
 // has no effect when combined with explicit bits. To extend inference, combine
-// a recognized result from [InferResourceDestinations] with explicit bits.
+// the nonzero destinations returned by [InferResource] with explicit bits.
 // WebSocket URLs select [ResourceDestinationConnect]. Conventional scripts,
 // stylesheets, images and fonts are inferred from the path extension and
 // registered MIME type; MIME matching is case-insensitive. When ordinary

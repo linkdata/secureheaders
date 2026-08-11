@@ -105,11 +105,13 @@ Behavior:
   recognized asset extension also needs `ResourceDestinationConnect`. The
   builder does not generate `worker-src`, `media-src`, `frame-src` or
   `manifest-src` directives.
-- `InferResourceDestinations` returns the exact destination bitmask that
-  automatic inference uses. Recognition does not validate CSP source support.
-  `ResourceDestinationAuto` is zero and has no effect when combined with
-  explicit bits. To extend inference, call this function and combine a
-  recognized result.
+- `InferResource` returns the exact destination bitmask that automatic
+  inference uses and the lower-case path extension, including its leading dot,
+  that selected it. The extension is empty for scheme-based and generic
+  connection inference. A nonzero destination result does not validate CSP
+  source support. `ResourceDestinationAuto` is zero and has no effect when
+  combined with explicit bits. To extend inference, combine a nonzero result
+  with explicit bits.
 - Explicit destinations bypass inference and select only their named CSP
   directives. Combine them with `|`, for example `ResourceDestinationStyle |
   ResourceDestinationImage | ResourceDestinationFont`. A value containing an
@@ -122,6 +124,8 @@ Behavior:
 - Hosts must match the CSP host-source grammar. IPv6 literals and hostnames
   containing underscores are ignored; internationalized hostnames must use
   their ASCII A-label (Punycode) form.
+- `ContentSecurityPolicySource` returns the host-source expression derived from
+  a URL, or an empty string when none can be emitted.
 - A scheme-relative URL produces a schemeless source. For an HTTP protected
   resource it permits HTTP and HTTPS; for HTTPS it permits HTTPS only. It does
   not permit WebSocket connections; use an explicit `ws://` or `wss://` URL
