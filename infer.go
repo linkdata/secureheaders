@@ -7,21 +7,25 @@ import (
 	"strings"
 )
 
-// InferResourceDestinations reports the destinations
-// [ResourceDestinationAuto] infers for u.
+// InferResource reports automatic destinations and the matching path extension.
 //
-// The result is ([ResourceDestinationAuto], false) for a nil URL or when no
+// The extension result includes its leading dot and is lower-case. It is empty
+// when inference is based on the URL scheme or the generic connection fallback.
+// The result is ([ResourceDestinationAuto], "") for a nil URL or when no
 // automatic rule matches. Inference does not otherwise validate CSP source
-// support or determine the application's request context.
-func InferResourceDestinations(u *url.URL) (destinations ResourceDestination, recognized bool) {
+// support or determine the application's request context. Use
+// [ContentSecurityPolicySource] to determine whether a URL can contribute an
+// explicit source.
+func InferResource(u *url.URL) (destinations ResourceDestination, matchedExtension string) {
 	if u != nil {
 		scheme := strings.ToLower(u.Scheme)
 		switch scheme {
 		case "ws", "wss":
-			return ResourceDestinationConnect, true
+			return ResourceDestinationConnect, ""
 		}
 
-		if destinations, recognized = inferResourceDestinationsFromExtension(path.Ext(u.Path)); recognized {
+		matchedExtension = strings.ToLower(path.Ext(u.Path))
+		if destinations = inferResourceDestinationsFromExtension(matchedExtension); destinations != ResourceDestinationAuto {
 			return
 		}
 
@@ -30,24 +34,25 @@ func InferResourceDestinations(u *url.URL) (destinations ResourceDestination, re
 		// extension.
 		_, name := path.Split(u.Path)
 		if i := strings.LastIndexByte(name, '@'); i > 0 && i < len(name)-1 {
-			if destinations, recognized = inferResourceDestinationsFromExtension(path.Ext(name[:i])); recognized {
+			matchedExtension = strings.ToLower(path.Ext(name[:i]))
+			if destinations = inferResourceDestinationsFromExtension(matchedExtension); destinations != ResourceDestinationAuto {
 				return
 			}
 		}
-		if !recognized && u.Hostname() != "" {
+		matchedExtension = ""
+		if u.Hostname() != "" {
 			switch scheme {
 			case "", "http", "https":
 				destinations = ResourceDestinationConnect
-				recognized = true
 			}
 		}
 	}
 	return
 }
 
-func inferResourceDestinationsFromExtension(ext string) (destinations ResourceDestination, recognized bool) {
+func inferResourceDestinationsFromExtension(ext string) (destinations ResourceDestination) {
 	ext = strings.ToLower(ext)
-	if destinations, recognized = resourceExtensionDestinations[ext]; recognized {
+	if destinations = resourceExtensionDestinations[ext]; destinations != ResourceDestinationAuto {
 		return
 	}
 
@@ -67,7 +72,6 @@ func inferResourceDestinationsFromExtension(ext string) (destinations ResourceDe
 				destinations = ResourceDestinationFont
 			}
 		}
-		recognized = destinations != ResourceDestinationAuto
 	}
 	return
 }

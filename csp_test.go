@@ -93,9 +93,9 @@ func TestSecureHeaders_InferredDestinationsMatchAuto(t *testing.T) {
 	} {
 		t.Run(rawURL, func(t *testing.T) {
 			u := mustParseURL(t, rawURL)
-			destinations, recognized := secureheaders.InferResourceDestinations(u)
-			if !recognized {
-				t.Fatalf("InferResourceDestinations(%v) was not recognized", u)
+			destinations, _ := secureheaders.InferResource(u)
+			if destinations == secureheaders.ResourceDestinationAuto {
+				t.Fatalf("InferResource(%v) was not recognized", u)
 			}
 			got := secureheaders.BuildContentSecurityPolicy(secureheaders.Resource{URL: u})
 			want := secureheaders.BuildContentSecurityPolicy(secureheaders.Resource{
@@ -141,7 +141,7 @@ func TestSecureHeaders_BuildContentSecurityPolicyForURLs(t *testing.T) {
 	}
 }
 
-func TestSecureHeaders_InferResourceDestinations(t *testing.T) {
+func TestSecureHeaders_InferResource(t *testing.T) {
 	for _, tc := range []struct {
 		name             string
 		u                *url.URL
@@ -192,11 +192,75 @@ func TestSecureHeaders_InferResourceDestinations(t *testing.T) {
 		{name: "port-only scheme-relative", u: &url.URL{Host: ":8443", Path: "/data"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			gotDestinations, gotRecognized := secureheaders.InferResourceDestinations(tc.u)
-			wantRecognized := tc.wantDestinations != secureheaders.ResourceDestinationAuto
-			if gotDestinations != tc.wantDestinations || gotRecognized != wantRecognized {
-				t.Fatalf("InferResourceDestinations(%v) = (%v, %t), want (%v, %t)",
-					tc.u, gotDestinations, gotRecognized, tc.wantDestinations, wantRecognized)
+			gotDestinations, _ := secureheaders.InferResource(tc.u)
+			if gotDestinations != tc.wantDestinations {
+				t.Fatalf("InferResource(%v) destinations = %v, want %v",
+					tc.u, gotDestinations, tc.wantDestinations)
+			}
+		})
+	}
+}
+
+func TestSecureHeaders_InferResource_MatchedExtension(t *testing.T) {
+	const (
+		customStyle    = ".inferresourcecss"
+		customAtScript = ".js@custom"
+	)
+	if err := mime.AddExtensionType(customStyle, "TEXT/CSS"); err != nil {
+		t.Fatalf("AddExtensionType: %v", err)
+	}
+	if err := mime.AddExtensionType(customAtScript, "TEXT/JAVASCRIPT"); err != nil {
+		t.Fatalf("AddExtensionType: %v", err)
+	}
+
+	stylesheetDestinations := secureheaders.ResourceDestinationStyle |
+		secureheaders.ResourceDestinationImage |
+		secureheaders.ResourceDestinationFont
+	for _, tc := range []struct {
+		name             string
+		u                *url.URL
+		wantDestinations secureheaders.ResourceDestination
+		wantExtension    string
+	}{
+		{name: "nil"},
+		{name: "JavaScript", u: &url.URL{Path: "/app.JS"}, wantDestinations: secureheaders.ResourceDestinationScript, wantExtension: ".js"},
+		{name: "module final extension wins", u: &url.URL{Path: "/app.js@1.mjs"}, wantDestinations: secureheaders.ResourceDestinationScript, wantExtension: ".mjs"},
+		{name: "registered at extension wins", u: &url.URL{Path: "/app" + customAtScript}, wantDestinations: secureheaders.ResourceDestinationScript, wantExtension: customAtScript},
+		{name: "versioned JavaScript", u: &url.URL{Path: "/chart.JS@4.4.1"}, wantDestinations: secureheaders.ResourceDestinationScript, wantExtension: ".js"},
+		{name: "stylesheet final extension wins", u: &url.URL{Path: "/script.js@backup.CSS"}, wantDestinations: stylesheetDestinations, wantExtension: ".css"},
+		{name: "versioned stylesheet MIME", u: &url.URL{Path: "/theme" + customStyle + "@latest"}, wantDestinations: stylesheetDestinations, wantExtension: customStyle},
+		{name: "WebSocket", u: &url.URL{Scheme: "wss", Host: "events.example.com", Path: "/app.js"}, wantDestinations: secureheaders.ResourceDestinationConnect},
+		{name: "generic connection", u: mustParseURL(t, "https://api.example.com/module.wasm"), wantDestinations: secureheaders.ResourceDestinationConnect},
+		{name: "unrecognized relative", u: &url.URL{Path: "/module.wasm"}},
+		{name: "empty version suffix", u: &url.URL{Path: "/app.js@"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gotDestinations, gotExtension := secureheaders.InferResource(tc.u)
+			if gotDestinations != tc.wantDestinations || gotExtension != tc.wantExtension {
+				t.Fatalf("InferResource(%v) = (%v, %q), want (%v, %q)",
+					tc.u, gotDestinations, gotExtension,
+					tc.wantDestinations, tc.wantExtension)
+			}
+		})
+	}
+}
+
+func TestSecureHeaders_ContentSecurityPolicySource(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		u          *url.URL
+		wantSource string
+	}{
+		{name: "nil"},
+		{name: "HTTPS", u: mustParseURL(t, "https://user:secret@CDN.Example.com:8443/app.js?version=1#fragment"), wantSource: "https://cdn.example.com:8443"},
+		{name: "scheme relative", u: mustParseURL(t, "//CDN.Example.com/app.js"), wantSource: "cdn.example.com"},
+		{name: "WebSocket", u: mustParseURL(t, "wss://Events.Example.com/socket"), wantSource: "wss://events.example.com"},
+		{name: "relative", u: mustParseURL(t, "/app.js")},
+		{name: "underscore", u: mustParseURL(t, "https://internal_host.example/app.js")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := secureheaders.ContentSecurityPolicySource(tc.u); got != tc.wantSource {
+				t.Fatalf("ContentSecurityPolicySource(%v) = %q, want %q", tc.u, got, tc.wantSource)
 			}
 		})
 	}
@@ -358,7 +422,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_ValidSourcesWithPorts(t *testi
 	}
 }
 
-func TestSecureHeaders_InferResourceDestinations_MIMEFallback(t *testing.T) {
+func TestSecureHeaders_InferResource_MIMEFallback(t *testing.T) {
 	tests := []struct {
 		name             string
 		ext              string
@@ -393,11 +457,14 @@ func TestSecureHeaders_InferResourceDestinations_MIMEFallback(t *testing.T) {
 				u.Scheme = "https"
 				u.Host = "mime.example.com"
 			}
-			gotDestinations, gotRecognized := secureheaders.InferResourceDestinations(u)
-			wantRecognized := tc.wantDestinations != secureheaders.ResourceDestinationAuto
-			if gotDestinations != tc.wantDestinations || gotRecognized != wantRecognized {
-				t.Fatalf("InferResourceDestinations(%v) = (%v, %t), want (%v, %t)",
-					u, gotDestinations, gotRecognized, tc.wantDestinations, wantRecognized)
+			gotDestinations, gotExtension := secureheaders.InferResource(u)
+			wantExtension := ""
+			if tc.wantDestinations != secureheaders.ResourceDestinationAuto && tc.wantDestinations != secureheaders.ResourceDestinationConnect {
+				wantExtension = tc.ext
+			}
+			if gotDestinations != tc.wantDestinations || gotExtension != wantExtension {
+				t.Fatalf("InferResource(%v) = (%v, %q), want (%v, %q)",
+					u, gotDestinations, gotExtension, tc.wantDestinations, wantExtension)
 			}
 		})
 	}
