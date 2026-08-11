@@ -59,7 +59,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_AutoDestinations(t *testing.T)
 		mustParseURL(t, "https://images.example.com/logo.png"),
 		mustParseURL(t, "https://fonts.example.com/font.woff2"),
 		&url.URL{Scheme: "WSS", Host: "Events.Example.com:8443", Path: "/socket.js"},
-		mustParseURL(t, "https://ignored.example.com/module.wasm"),
+		mustParseURL(t, "https://fetch.example.com/module.wasm"),
 	)
 
 	got := secureheaders.BuildContentSecurityPolicy(resources...)
@@ -70,9 +70,9 @@ func TestSecureHeaders_BuildContentSecurityPolicy_AutoDestinations(t *testing.T)
 		"form-action 'self'; " +
 		"script-src 'self' https://scripts.example.com; " +
 		"style-src 'self' 'unsafe-inline' https://styles.example.com; " +
-		"img-src 'self' data: https://images.example.com; " +
+		"img-src 'self' data: https://images.example.com https://styles.example.com; " +
 		"font-src 'self' https://fonts.example.com https://styles.example.com; " +
-		"connect-src 'self' wss://events.example.com:8443"
+		"connect-src 'self' https://fetch.example.com wss://events.example.com:8443"
 	if got != want {
 		t.Fatalf("unexpected automatic-destination CSP:\nwant: %q\ngot:  %q", want, got)
 	}
@@ -96,7 +96,11 @@ func TestSecureHeaders_InferResourceDestination(t *testing.T) {
 		{name: "stylesheet with unsupported source", u: mustParseURL(t, "ftp://files.example.com/app.css"), wantDestination: secureheaders.ResourceDestinationStyle, wantOK: true},
 		{name: "registered image MIME", u: &url.URL{Path: "/image" + imageExt}, wantDestination: secureheaders.ResourceDestinationImage, wantOK: true},
 		{name: "font", u: &url.URL{Path: "/font.WOFF2"}, wantDestination: secureheaders.ResourceDestinationFont, wantOK: true},
-		{name: "unclassified", u: &url.URL{Path: "/resource.unknown"}},
+		{name: "generic HTTP fetch", u: &url.URL{Scheme: "HTTP", Host: "api.example.com", Path: "/resource.unknown"}, wantDestination: secureheaders.ResourceDestinationConnect, wantOK: true},
+		{name: "generic HTTPS fetch", u: mustParseURL(t, "https://api.example.com/module.wasm"), wantDestination: secureheaders.ResourceDestinationConnect, wantOK: true},
+		{name: "generic relative fetch", u: &url.URL{Path: "/resource.unknown"}, wantDestination: secureheaders.ResourceDestinationConnect, wantOK: true},
+		{name: "generic scheme-relative fetch", u: mustParseURL(t, "//api.example.com/resource"), wantDestination: secureheaders.ResourceDestinationConnect, wantOK: true},
+		{name: "unclassified scheme", u: mustParseURL(t, "ftp://files.example.com/resource.unknown")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			gotDestination, gotOK := secureheaders.InferResourceDestination(tc.u)
@@ -255,13 +259,28 @@ func TestSecureHeaders_BuildContentSecurityPolicy_ValidSourcesWithPorts(t *testi
 	}
 }
 
-func TestSecureHeaders_BuildContentSecurityPolicy_StyleSourceAlsoAllowsFonts(t *testing.T) {
-	urls := []*url.URL{
-		mustParseURL(t, "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.min.css"),
+func TestSecureHeaders_BuildContentSecurityPolicy_AutoStylesheetAllowsSameSourceAssets(t *testing.T) {
+	u := mustParseURL(t, "https://cdn.jsdelivr.net/npm/icons/icons.min.css")
+	got := secureheaders.BuildContentSecurityPolicy(secureheaders.Resource{URL: u})
+	want := secureheaders.BuildContentSecurityPolicy(
+		secureheaders.Resource{URL: u, Destination: secureheaders.ResourceDestinationStyle},
+		secureheaders.Resource{URL: u, Destination: secureheaders.ResourceDestinationImage},
+		secureheaders.Resource{URL: u, Destination: secureheaders.ResourceDestinationFont},
+	)
+	if got != want {
+		t.Fatalf("unexpected automatic stylesheet CSP:\nwant: %q\ngot:  %q", want, got)
 	}
-	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...)...)
-	if !strings.Contains(got, "font-src 'self' https://cdn.jsdelivr.net") {
-		t.Fatalf("expected stylesheet source to be added to font-src, got: %q", got)
+}
+
+func TestSecureHeaders_BuildContentSecurityPolicy_ModuleScriptUsesScript(t *testing.T) {
+	u := mustParseURL(t, "https://modules.example.com/module.mjs")
+	got := secureheaders.BuildContentSecurityPolicy(secureheaders.Resource{URL: u})
+	want := secureheaders.BuildContentSecurityPolicy(secureheaders.Resource{
+		URL:         u,
+		Destination: secureheaders.ResourceDestinationScript,
+	})
+	if got != want {
+		t.Fatalf("unexpected module script CSP:\nwant: %q\ngot:  %q", want, got)
 	}
 }
 
@@ -292,11 +311,15 @@ func TestSecureHeaders_BuildContentSecurityPolicy_MIMEFallback(t *testing.T) {
 	stylePolicy := strings.Replace(defaultCSP,
 		"style-src 'self' 'unsafe-inline'", "style-src 'self' 'unsafe-inline' "+host, 1)
 	stylePolicy = strings.Replace(stylePolicy,
+		"img-src 'self' data:", "img-src 'self' data: "+host, 1)
+	stylePolicy = strings.Replace(stylePolicy,
 		"font-src 'self'", "font-src 'self' "+host, 1)
 	imagePolicy := strings.Replace(defaultCSP,
 		"img-src 'self' data:", "img-src 'self' data: "+host, 1)
 	fontPolicy := strings.Replace(defaultCSP,
 		"font-src 'self'", "font-src 'self' "+host, 1)
+	connectPolicy := strings.Replace(defaultCSP,
+		"connect-src 'self'", "connect-src 'self' "+host, 1)
 
 	tests := []struct {
 		name     string
@@ -310,11 +333,11 @@ func TestSecureHeaders_BuildContentSecurityPolicy_MIMEFallback(t *testing.T) {
 		{name: "stylesheet", ext: ".customcss", mimeType: "TeXt/CsS; ChArSeT=UTF-8", want: stylePolicy},
 		{name: "image", ext: ".customimg", mimeType: "IMAGE/X-CUSTOM", want: imagePolicy},
 		{name: "font", ext: ".customfont", mimeType: "FONT/X-CUSTOM", want: fontPolicy},
-		{name: "image-like", ext: ".customimagery", mimeType: "IMAGERY/X-CUSTOM", want: defaultCSP},
-		{name: "font-like", ext: ".customfontlike", mimeType: "FONTLIKE/X-CUSTOM", want: defaultCSP},
-		{name: "stylesheet-like", ext: ".customcsslike", mimeType: "TEXT/CSSFOO", want: defaultCSP},
-		{name: "JavaScript-like", ext: ".customjslike", mimeType: "TEXT/JAVASCRIPTFOO", want: defaultCSP},
-		{name: "unmatched", ext: ".customjson", mimeType: "APPLICATION/JSON", want: defaultCSP},
+		{name: "image-like", ext: ".customimagery", mimeType: "IMAGERY/X-CUSTOM", want: connectPolicy},
+		{name: "font-like", ext: ".customfontlike", mimeType: "FONTLIKE/X-CUSTOM", want: connectPolicy},
+		{name: "stylesheet-like", ext: ".customcsslike", mimeType: "TEXT/CSSFOO", want: connectPolicy},
+		{name: "JavaScript-like", ext: ".customjslike", mimeType: "TEXT/JAVASCRIPTFOO", want: connectPolicy},
+		{name: "unmatched", ext: ".customjson", mimeType: "APPLICATION/JSON", want: connectPolicy},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -383,12 +406,14 @@ func TestSecureHeaders_BuildContentSecurityPolicy_HostCaseFolded(t *testing.T) {
 	}
 }
 
-func TestSecureHeaders_BuildContentSecurityPolicy_UnknownExtensionDropped(t *testing.T) {
-	urls := []*url.URL{
-		mustParseURL(t, "https://cdn.example.com/asset.bogus"),
-	}
-	got := secureheaders.BuildContentSecurityPolicy(autoResources(urls...)...)
-	if strings.Contains(got, "cdn.example.com") {
-		t.Fatalf("expected unknown extension to be dropped, got: %q", got)
+func TestSecureHeaders_BuildContentSecurityPolicy_UnknownExtensionUsesConnect(t *testing.T) {
+	u := mustParseURL(t, "https://cdn.example.com/asset.bogus")
+	got := secureheaders.BuildContentSecurityPolicy(secureheaders.Resource{URL: u})
+	want := secureheaders.BuildContentSecurityPolicy(secureheaders.Resource{
+		URL:         u,
+		Destination: secureheaders.ResourceDestinationConnect,
+	})
+	if got != want {
+		t.Fatalf("unexpected generic resource CSP:\nwant: %q\ngot:  %q", want, got)
 	}
 }

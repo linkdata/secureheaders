@@ -9,15 +9,17 @@ import (
 
 // InferResourceDestination reports the conventional destination inferred for u.
 //
-// It returns the primary destination used by [ResourceDestinationAuto], which
-// may add supplementary permissions when building a policy. The URL-based
-// inference does not determine how an application actually requests a resource;
-// callers that know the request context should use an explicit destination.
+// It returns the primary destination used by [ResourceDestinationAuto].
+// Auto-inferred stylesheets also permit the same source for images and fonts.
+// The URL-based inference does not determine how an application actually
+// requests a resource; callers that know the request context should use an
+// explicit destination.
 //
 // It recognizes WebSocket schemes, common path extensions and registered MIME
-// types. A nil or unclassified URL returns ([ResourceDestinationAuto], false).
-// Inference does not validate whether the URL supplies a supported CSP host
-// source.
+// types. Other HTTP, HTTPS, scheme-relative and relative URLs select
+// [ResourceDestinationConnect]. A nil URL or an unclassified URL with another
+// scheme returns ([ResourceDestinationAuto], false). Inference does not
+// validate whether the URL supplies a supported CSP host source.
 func InferResourceDestination(u *url.URL) (destination ResourceDestination, ok bool) {
 	if u != nil {
 		switch strings.ToLower(u.Scheme) {
@@ -49,6 +51,13 @@ func InferResourceDestination(u *url.URL) (destination ResourceDestination, ok b
 				}
 			}
 			ok = destination != ResourceDestinationAuto
+		}
+		if !ok {
+			switch strings.ToLower(u.Scheme) {
+			case "", "http", "https":
+				destination = ResourceDestinationConnect
+				ok = true
+			}
 		}
 	}
 	return

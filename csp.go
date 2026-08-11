@@ -11,9 +11,10 @@ import (
 // BuildContentSecurityPolicy returns a Content-Security-Policy header value.
 //
 // Each resource contributes a host source expression according to its
-// destination. [ResourceDestinationAuto] infers a destination from the URL;
-// inferred stylesheet sources are also permitted for fonts. The same URL may
-// be listed more than once with different explicit destinations.
+// destination. [ResourceDestinationAuto] infers a primary destination;
+// auto-inferred stylesheets also permit the same source for images and fonts.
+// The same URL may be listed more than once with different explicit
+// destinations.
 //
 // With no resources, the function returns the default policy, which includes
 // style-src 'unsafe-inline'. HTTP, HTTPS, WebSocket and scheme-relative URLs
@@ -23,8 +24,8 @@ import (
 // explicit ws:// or wss:// URL for those. A scheme-relative * host without a
 // port is ignored. Internationalized hostnames must use their ASCII A-label
 // (Punycode) form. Resources with nil URLs, hosts outside the CSP host-source
-// grammar, unsupported schemes or unknown destinations do not contribute a
-// source.
+// grammar, unsupported schemes or unrecognized destination values do not
+// contribute a source.
 //
 // Resources must come from trusted application configuration. Callers are
 // responsible for parsing and validating URLs; this function does not sanitize
@@ -50,7 +51,9 @@ func BuildContentSecurityPolicy(resources ...Resource) (value string) {
 				case ResourceDestinationStyle:
 					styleSrc[source] = struct{}{}
 					if inferred {
-						// Inferred stylesheets may load relative fonts from the same source.
+						// Relative stylesheet images and fonts resolve against the
+						// stylesheet URL, so Auto permits the same source for them.
+						imgSrc[source] = struct{}{}
 						fontSrc[source] = struct{}{}
 					}
 				case ResourceDestinationImage:

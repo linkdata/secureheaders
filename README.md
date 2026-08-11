@@ -94,22 +94,28 @@ Behavior:
       `application/javascript` and `application/ecmascript` -> `script-src`,
       `text/css` -> `style-src`, `image/*` -> `img-src` and `font/*` ->
       `font-src`;
-    - inferred stylesheet sources are also added to `font-src`;
-    - URLs whose extension matches neither are ignored.
+    - inferred stylesheet sources are also added to `img-src` and `font-src`,
+      permitting relative images and fonts from the stylesheet's source;
+    - other HTTP, HTTPS, scheme-relative and relative resources select
+      `connect-src` as a generic fetch destination. Relative URLs are covered by
+      the baseline `'self'` source.
 - `InferResourceDestination` returns the primary destination that automatic
-  inference would select without building a policy. Automatic inference may
-  add supplementary permissions, such as `font-src` for a stylesheet. The
-  function does not validate CSP source support. Its URL-based result is a
-  conventional heuristic; applications that know how a resource is requested
-  should use an explicit destination instead.
+  inference would select without building a policy. Automatic stylesheet
+  inference also permits same-source images and fonts. The function does not
+  validate CSP source support. Its URL-based result is a conventional heuristic;
+  applications that know how a resource is requested should use an explicit
+  destination instead.
 - An explicit destination bypasses inference and selects only its named CSP
   directive: script, style, image, font or connect. Connect permits fetches,
   XMLHttpRequest, EventSource, `navigator.sendBeacon` and WebSocket.
-  `ResourceDestinationStyle` does not also select `font-src`; list a URL once
-  per required destination.
+  `ResourceDestinationStyle` does not also select `img-src` or `font-src`; list
+  a URL once per required destination.
+- Automatic inference covers its selected destination and same-source relative
+  image and font references from stylesheets. Other requests selected by
+  resource contents require additional resources or explicit destinations.
 - HTTP, HTTPS, WebSocket and scheme-relative URLs with hosts are supported.
-  Nil URLs, URLs without hosts, unsupported schemes and unknown destinations
-  are ignored.
+  Nil URLs, URLs without hosts, unsupported schemes and unrecognized
+  destination values are ignored.
 - Hosts must match the CSP host-source grammar. IPv6 literals and hostnames
   containing underscores are ignored; internationalized hostnames must use
   their ASCII A-label (Punycode) form.
@@ -126,7 +132,7 @@ module := &url.URL{Scheme: "https", Host: "modules.example.com", Path: "/module.
 
 csp := secureheaders.BuildContentSecurityPolicy(
 	secureheaders.Resource{URL: stylesheet},
-	secureheaders.Resource{URL: module, Destination: secureheaders.ResourceDestinationConnect},
+	secureheaders.Resource{URL: module},
 )
 w.Header().Set("Content-Security-Policy", csp)
 ```
