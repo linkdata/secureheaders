@@ -89,12 +89,19 @@ Behavior:
       (including web fonts such as `.woff2`, `.otf` and `.eot`) is consulted
       first;
     - extensions not on that list fall back to the local MIME database
-      (`mime.TypeByExtension`), mapping `text/javascript`,
+      (`mime.TypeByExtension`), matching media types case-insensitively and
+      mapping `text/javascript`,
       `application/javascript` and `application/ecmascript` -> `script-src`,
       `text/css` -> `style-src`, `image/*` -> `img-src` and `font/*` ->
       `font-src`;
     - inferred stylesheet sources are also added to `font-src`;
     - URLs whose extension matches neither are ignored.
+- `InferResourceDestination` returns the primary destination that automatic
+  inference would select without building a policy. Automatic inference may
+  add supplementary permissions, such as `font-src` for a stylesheet. The
+  function does not validate CSP source support. Its URL-based result is a
+  conventional heuristic; applications that know how a resource is requested
+  should use an explicit destination instead.
 - An explicit destination bypasses inference and selects only its named CSP
   directive: script, style, image, font or connect. Connect permits fetches,
   XMLHttpRequest, EventSource, `navigator.sendBeacon` and WebSocket.

@@ -78,6 +78,36 @@ func TestSecureHeaders_BuildContentSecurityPolicy_AutoDestinations(t *testing.T)
 	}
 }
 
+func TestSecureHeaders_InferResourceDestination(t *testing.T) {
+	const imageExt = ".infercustomimage"
+	if err := mime.AddExtensionType(imageExt, "IMAGE/X-CUSTOM; Version=1"); err != nil {
+		t.Fatalf("AddExtensionType: %v", err)
+	}
+
+	for _, tc := range []struct {
+		name            string
+		u               *url.URL
+		wantDestination secureheaders.ResourceDestination
+		wantOK          bool
+	}{
+		{name: "nil"},
+		{name: "WebSocket", u: &url.URL{Scheme: "WSS", Host: "events.example.com"}, wantDestination: secureheaders.ResourceDestinationConnect, wantOK: true},
+		{name: "module script", u: &url.URL{Path: "/module.MJS"}, wantDestination: secureheaders.ResourceDestinationScript, wantOK: true},
+		{name: "stylesheet with unsupported source", u: mustParseURL(t, "ftp://files.example.com/app.css"), wantDestination: secureheaders.ResourceDestinationStyle, wantOK: true},
+		{name: "registered image MIME", u: &url.URL{Path: "/image" + imageExt}, wantDestination: secureheaders.ResourceDestinationImage, wantOK: true},
+		{name: "font", u: &url.URL{Path: "/font.WOFF2"}, wantDestination: secureheaders.ResourceDestinationFont, wantOK: true},
+		{name: "unclassified", u: &url.URL{Path: "/resource.unknown"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gotDestination, gotOK := secureheaders.InferResourceDestination(tc.u)
+			if gotDestination != tc.wantDestination || gotOK != tc.wantOK {
+				t.Fatalf("InferResourceDestination(%v) = (%v, %t), want (%v, %t)",
+					tc.u, gotDestination, gotOK, tc.wantDestination, tc.wantOK)
+			}
+		})
+	}
+}
+
 func TestSecureHeaders_BuildContentSecurityPolicy_ExplicitDestinations(t *testing.T) {
 	shared := mustParseURL(t, "https://Shared.Example.com:8443/module.png")
 	resources := []secureheaders.Resource{
@@ -257,19 +287,34 @@ func TestSecureHeaders_BuildContentSecurityPolicy_FontByExtension(t *testing.T) 
 
 func TestSecureHeaders_BuildContentSecurityPolicy_MIMEFallback(t *testing.T) {
 	const host = "https://cdn.example.com"
+	scriptPolicy := strings.Replace(defaultCSP,
+		"script-src 'self'", "script-src 'self' "+host, 1)
+	stylePolicy := strings.Replace(defaultCSP,
+		"style-src 'self' 'unsafe-inline'", "style-src 'self' 'unsafe-inline' "+host, 1)
+	stylePolicy = strings.Replace(stylePolicy,
+		"font-src 'self'", "font-src 'self' "+host, 1)
+	imagePolicy := strings.Replace(defaultCSP,
+		"img-src 'self' data:", "img-src 'self' data: "+host, 1)
+	fontPolicy := strings.Replace(defaultCSP,
+		"font-src 'self'", "font-src 'self' "+host, 1)
+
 	tests := []struct {
 		name     string
 		ext      string
 		mimeType string
-		wantSub  string // substring that must appear; "" means the host must be absent
+		want     string
 	}{
-		{"script", ".customjs", "text/javascript", "script-src 'self' " + host},
-		{"script-application-javascript", ".customappjs", "application/javascript", "script-src 'self' " + host},
-		{"script-application-ecmascript", ".customes", "application/ecmascript", "script-src 'self' " + host},
-		{"style", ".customcss", "text/css", "style-src 'self' 'unsafe-inline' " + host},
-		{"image", ".customimg", "image/x-custom", "img-src 'self' data: " + host},
-		{"font", ".customfont", "font/x-custom", "font-src 'self' " + host},
-		{"unmatched", ".customjson", "application/json", ""},
+		{name: "text JavaScript", ext: ".customjs", mimeType: "TEXT/JAVASCRIPT", want: scriptPolicy},
+		{name: "application JavaScript", ext: ".customappjs", mimeType: "APPLICATION/JAVASCRIPT", want: scriptPolicy},
+		{name: "application ECMAScript", ext: ".customes", mimeType: "APPLICATION/ECMASCRIPT", want: scriptPolicy},
+		{name: "stylesheet", ext: ".customcss", mimeType: "TeXt/CsS; ChArSeT=UTF-8", want: stylePolicy},
+		{name: "image", ext: ".customimg", mimeType: "IMAGE/X-CUSTOM", want: imagePolicy},
+		{name: "font", ext: ".customfont", mimeType: "FONT/X-CUSTOM", want: fontPolicy},
+		{name: "image-like", ext: ".customimagery", mimeType: "IMAGERY/X-CUSTOM", want: defaultCSP},
+		{name: "font-like", ext: ".customfontlike", mimeType: "FONTLIKE/X-CUSTOM", want: defaultCSP},
+		{name: "stylesheet-like", ext: ".customcsslike", mimeType: "TEXT/CSSFOO", want: defaultCSP},
+		{name: "JavaScript-like", ext: ".customjslike", mimeType: "TEXT/JAVASCRIPTFOO", want: defaultCSP},
+		{name: "unmatched", ext: ".customjson", mimeType: "APPLICATION/JSON", want: defaultCSP},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -281,14 +326,8 @@ func TestSecureHeaders_BuildContentSecurityPolicy_MIMEFallback(t *testing.T) {
 			}
 			u := mustParseURL(t, host+"/asset"+tc.ext)
 			got := secureheaders.BuildContentSecurityPolicy(autoResources(u)...)
-			if tc.wantSub == "" {
-				if strings.Contains(got, host) {
-					t.Fatalf("expected unmatched MIME type to be dropped, got: %q", got)
-				}
-				return
-			}
-			if !strings.Contains(got, tc.wantSub) {
-				t.Fatalf("expected %q in CSP, got: %q", tc.wantSub, got)
+			if got != tc.want {
+				t.Fatalf("unexpected MIME fallback CSP:\nwant: %q\ngot:  %q", tc.want, got)
 			}
 		})
 	}

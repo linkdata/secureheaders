@@ -26,10 +26,13 @@ type ResourceDestination uint8
 const (
 	// ResourceDestinationAuto infers the destination from the resource URL.
 	//
+	// It uses [InferResourceDestination] to select its primary destination.
+	//
 	// WebSocket URLs select [ResourceDestinationConnect]. Other conventional
 	// script, stylesheet, image and font resources are inferred from the URL's
-	// path extension and registered MIME type. An inferred stylesheet source is
-	// also permitted for fonts. Unclassified resources are ignored.
+	// path extension and registered MIME type. MIME type matching is
+	// case-insensitive. An inferred stylesheet source is also permitted for
+	// fonts. Unclassified resources are ignored.
 	ResourceDestinationAuto ResourceDestination = iota
 
 	// ResourceDestinationScript selects script-src.

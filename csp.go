@@ -2,9 +2,7 @@ package secureheaders
 
 import (
 	"maps"
-	"mime"
 	"net/url"
-	"path"
 	"regexp"
 	"slices"
 	"strings"
@@ -44,7 +42,7 @@ func BuildContentSecurityPolicy(resources ...Resource) (value string) {
 				destination := resource.Destination
 				inferred := destination == ResourceDestinationAuto
 				if inferred {
-					destination = resourceDestinationForURL(resource.URL)
+					destination, _ = InferResourceDestination(resource.URL)
 				}
 				switch destination {
 				case ResourceDestinationScript:
@@ -87,64 +85,6 @@ func cspDirective(name string, defaults []string, extras map[string]struct{}) st
 	// slices.Concat allocates a fresh slice, so defaults is never mutated even
 	// when a caller passes a slice with spare capacity.
 	return name + " " + strings.Join(slices.Concat(defaults, values), " ")
-}
-
-// cspExtDestination maps a lowercased file extension (including the leading
-// dot) to the inferred browser destination.
-//
-// It is consulted before mime.TypeByExtension so that detection is deterministic
-// for these extensions regardless of the host's MIME database, which is
-// incomplete for web fonts (for example, .otf and .eot) and varies across
-// operating systems and minimal container images. Extensions not listed here
-// fall back to MIME-based detection.
-var cspExtDestination = map[string]ResourceDestination{
-	".js":    ResourceDestinationScript,
-	".mjs":   ResourceDestinationScript,
-	".css":   ResourceDestinationStyle,
-	".png":   ResourceDestinationImage,
-	".jpg":   ResourceDestinationImage,
-	".jpeg":  ResourceDestinationImage,
-	".gif":   ResourceDestinationImage,
-	".webp":  ResourceDestinationImage,
-	".avif":  ResourceDestinationImage,
-	".svg":   ResourceDestinationImage,
-	".ico":   ResourceDestinationImage,
-	".bmp":   ResourceDestinationImage,
-	".woff":  ResourceDestinationFont,
-	".woff2": ResourceDestinationFont,
-	".ttf":   ResourceDestinationFont,
-	".otf":   ResourceDestinationFont,
-	".ttc":   ResourceDestinationFont,
-	".eot":   ResourceDestinationFont,
-}
-
-func resourceDestinationForURL(u *url.URL) (destination ResourceDestination) {
-	switch strings.ToLower(u.Scheme) {
-	case "ws", "wss":
-		destination = ResourceDestinationConnect
-		return
-	}
-
-	ext := strings.ToLower(path.Ext(u.Path))
-	if inferred, ok := cspExtDestination[ext]; ok {
-		destination = inferred
-		return
-	}
-
-	// Fall back to the host's MIME database for extensions not in the explicit map.
-	switch mimetype := mime.TypeByExtension(ext); {
-	case strings.HasPrefix(mimetype, "text/css"):
-		destination = ResourceDestinationStyle
-	case strings.HasPrefix(mimetype, "text/javascript"),
-		strings.HasPrefix(mimetype, "application/javascript"),
-		strings.HasPrefix(mimetype, "application/ecmascript"):
-		destination = ResourceDestinationScript
-	case strings.HasPrefix(mimetype, "image/"):
-		destination = ResourceDestinationImage
-	case strings.HasPrefix(mimetype, "font/"):
-		destination = ResourceDestinationFont
-	}
-	return
 }
 
 func cspSourceExpr(u *url.URL) (src string) {
