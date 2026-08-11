@@ -67,12 +67,12 @@ For list-valued forwarding headers, the first hop is used.
 
 ## CSP builder
 
-`BuildContentSecurityPolicy(resources...)` builds a `Content-Security-Policy`
-header value. Each `Resource` separates where a resource is located (`URL`)
-from how the browser requests it (`Destination`). The URL's scheme, host and
-port supply the CSP source expression; the destination bitmask selects the
-directives that permit it. Paths, queries and fragments do not restrict the
-permission.
+`BuildContentSecurityPolicyForURLs(urls...)` applies automatic destination
+inference to each URL. Use `BuildContentSecurityPolicy(resources...)` when a URL
+needs explicit or combined destinations. A `Resource` separates the URL from
+the browser request destinations it permits. The URL's scheme, host and port
+supply the CSP source expression; paths, queries and fragments do not restrict
+the permission.
 
 Behavior:
 
@@ -83,27 +83,33 @@ Behavior:
   `connect-src 'self'`.
 - Callers must parse and validate resource URLs from trusted application
   configuration; the builder does not sanitize them.
-- `ResourceDestinationAuto`, the zero value, infers conventional resources:
+- `ResourceDestinationAuto`, the zero value, infers destinations:
   - `ws://`/`wss://` URLs select `connect-src`;
-  - all other URLs are classified by their file extension:
-    - an explicit list of common script, style, image and font extensions
-      (including web fonts such as `.woff2`, `.otf` and `.eot`) is consulted
-      first;
-    - extensions not on that list fall back to the local MIME database
-      (`mime.TypeByExtension`), matching media types case-insensitively and
-      mapping `text/javascript`,
-      `application/javascript` and `application/ecmascript` -> `script-src`,
-      `text/css` -> `style-src`, `image/*` -> `img-src` and `font/*` ->
-      `font-src`;
-    - stylesheets select `style-src`, `img-src` and `font-src`; each directive
-      receives the stylesheet's full source expression;
-    - unclassified resources are ignored.
+  - an explicit list of common script, style, image and font extensions
+    (including web fonts such as `.woff2`, `.otf` and `.eot`) is consulted next;
+  - extensions not on that list use the local MIME database
+    (`mime.TypeByExtension`), matching media types case-insensitively and mapping
+    `text/javascript`, `application/javascript` and `application/ecmascript` ->
+    `script-src`, `text/css` -> `style-src`, `image/*` -> `img-src` and `font/*`
+    -> `font-src`;
+  - when ordinary extension and MIME inference fail, a trailing `@version`
+    suffix in the final path segment is ignored and inference is retried;
+  - stylesheets select `style-src`, `img-src` and `font-src`; each directive
+    receives the stylesheet's full source expression;
+  - URLs still unclassified after extension and MIME matching select
+    `connect-src` when they use HTTP, HTTPS or a scheme-relative hostname.
+
+- Automatic inference uses URL conventions, not the actual request context.
+  Hosted script and stylesheet URLs without a recognized asset extension fall
+  back to `connect-src` and need explicit destinations. A fetched URL with a
+  recognized asset extension also needs `ResourceDestinationConnect`. The
+  builder does not generate `worker-src`, `media-src`, `frame-src` or
+  `manifest-src` directives.
 - `InferResourceDestinations` returns the exact destination bitmask that
-  automatic inference uses. Recognition does not validate CSP source support or
-  determine the application's request context; use explicit destinations when
-  the request context is known. `ResourceDestinationAuto` is zero and has no
-  effect when combined with explicit bits. To extend inference, call this
-  function and combine a recognized result.
+  automatic inference uses. Recognition does not validate CSP source support.
+  `ResourceDestinationAuto` is zero and has no effect when combined with
+  explicit bits. To extend inference, call this function and combine a
+  recognized result.
 - Explicit destinations bypass inference and select only their named CSP
   directives. Combine them with `|`, for example `ResourceDestinationStyle |
   ResourceDestinationImage | ResourceDestinationFont`. A value containing an
@@ -121,7 +127,8 @@ Behavior:
   not permit WebSocket connections; use an explicit `ws://` or `wss://` URL
   for those. A scheme-relative `*` host without a port is ignored.
 
-See the [`BuildContentSecurityPolicy` package example](https://pkg.go.dev/github.com/linkdata/secureheaders#example-BuildContentSecurityPolicy).
+See the [`BuildContentSecurityPolicyForURLs` package example](https://pkg.go.dev/github.com/linkdata/secureheaders#example-BuildContentSecurityPolicyForURLs)
+and the [`BuildContentSecurityPolicy` package example](https://pkg.go.dev/github.com/linkdata/secureheaders#example-BuildContentSecurityPolicy).
 
 ## Extra headers
 

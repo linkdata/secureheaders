@@ -32,12 +32,22 @@ type ResourceDestination uint32
 // As the zero value, it applies when no explicit destination bits are set and
 // has no effect when combined with explicit bits. To extend inference, combine
 // a recognized result from [InferResourceDestinations] with explicit bits.
-// WebSocket URLs select
-// [ResourceDestinationConnect]. Conventional scripts, stylesheets, images and
-// fonts are inferred from the path extension and registered MIME type; MIME
-// matching is case-insensitive. An inferred stylesheet selects
+// WebSocket URLs select [ResourceDestinationConnect]. Conventional scripts,
+// stylesheets, images and fonts are inferred from the path extension and
+// registered MIME type; MIME matching is case-insensitive. When ordinary
+// extension inference fails, a trailing @version suffix in the final path
+// segment is ignored, so app.js@4.4.1 is inferred as JavaScript. An inferred
+// stylesheet selects
 // [ResourceDestinationStyle], [ResourceDestinationImage] and
-// [ResourceDestinationFont]. Unclassified resources do not contribute a source.
+// [ResourceDestinationFont]. An otherwise-unclassified HTTP, HTTPS or
+// scheme-relative URL with a hostname selects [ResourceDestinationConnect].
+//
+// Inference uses URL conventions, not the actual request context. Hosted script
+// and stylesheet URLs without a recognized asset extension fall back to
+// [ResourceDestinationConnect] and need explicit destinations. A fetched URL
+// with a recognized asset extension also needs [ResourceDestinationConnect].
+// The builder does not generate worker-src, media-src, frame-src or manifest-src
+// directives.
 const ResourceDestinationAuto ResourceDestination = 0
 
 const (

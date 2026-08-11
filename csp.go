@@ -8,11 +8,34 @@ import (
 	"strings"
 )
 
+// BuildContentSecurityPolicyForURLs returns a Content-Security-Policy header
+// value using automatic destination inference.
+//
+// Each non-nil URL uses [ResourceDestinationAuto], including its
+// [ResourceDestinationConnect] fallback for otherwise-unclassified hosted HTTP,
+// HTTPS and scheme-relative URLs. Use [BuildContentSecurityPolicy] with explicit
+// destinations when URL conventions do not match the request context. With no
+// URLs, it returns the default policy. Source validation matches
+// [BuildContentSecurityPolicy].
+//
+// URLs must come from trusted application configuration because permissions
+// apply to origins, not paths.
+func BuildContentSecurityPolicyForURLs(urls ...*url.URL) (value string) {
+	resources := make([]Resource, len(urls))
+	for i, u := range urls {
+		resources[i].URL = u
+	}
+	value = BuildContentSecurityPolicy(resources...)
+	return
+}
+
 // BuildContentSecurityPolicy returns a Content-Security-Policy header value.
 //
 // Each resource contributes a host source expression to its selected
 // destinations. [ResourceDestinationAuto] applies its documented URL inference.
 // Other destination values may be combined with bitwise OR.
+// Use [BuildContentSecurityPolicyForURLs] when every URL uses automatic
+// inference.
 //
 // With no resources, the function returns the default policy, which includes
 // style-src 'unsafe-inline'. HTTP, HTTPS, WebSocket and scheme-relative URLs
@@ -22,9 +45,8 @@ import (
 // WebSocket connections; use an explicit ws:// or wss:// URL for those. A
 // scheme-relative * host without a port is ignored. Internationalized hostnames
 // must use their ASCII A-label (Punycode) form. Resources with nil URLs, URLs
-// whose automatic destination cannot be inferred, hosts outside the CSP
-// host-source grammar, unsupported schemes or destination bitmasks containing
-// unknown bits do not contribute a source.
+// with hosts outside the CSP host-source grammar, unsupported schemes or
+// destination bitmasks containing unknown bits do not contribute a source.
 //
 // Resources must come from trusted application configuration. Callers are
 // responsible for parsing and validating URLs; this function does not sanitize
@@ -41,11 +63,9 @@ func BuildContentSecurityPolicy(resources ...Resource) (value string) {
 			if source := cspSourceExpr(resource.URL); source != "" {
 				destinations := resource.Destination
 				if destinations == ResourceDestinationAuto {
-					inferredDestinations, recognized := InferResourceDestinations(resource.URL)
-					if !recognized {
-						continue
+					if inferred, recognized := InferResourceDestinations(resource.URL); recognized {
+						destinations = inferred
 					}
-					destinations = inferredDestinations
 				}
 				if destinations&^resourceDestinationsAll != 0 {
 					continue
