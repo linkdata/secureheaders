@@ -4,8 +4,8 @@ import "net/url"
 
 // Resource describes a URL used by a generated Content-Security-Policy.
 //
-// URL supplies the CSP source expression. Destination selects the directive
-// that permits the resource.
+// URL supplies the CSP source expression. Destination selects the directives
+// that permit the resource.
 type Resource struct {
 	// URL identifies the resource.
 	//
@@ -14,31 +14,37 @@ type Resource struct {
 	// resource to be ignored.
 	URL *url.URL
 
-	// Destination selects the directive that permits the resource.
+	// Destination selects the directives that permit the resource.
 	//
-	// Its zero value, [ResourceDestinationAuto], infers the destination from URL.
+	// Its zero value, [ResourceDestinationAuto], infers destinations from URL.
+	// Other values may be combined with bitwise OR.
 	Destination ResourceDestination
 }
 
-// ResourceDestination selects the CSP directive for a [Resource].
-type ResourceDestination uint8
+// ResourceDestination is a bitmask selecting CSP directives for a [Resource].
+//
+// Combine explicit destinations with bitwise OR. A resource whose destination
+// contains an unknown bit does not contribute a source.
+type ResourceDestination uint32
+
+// ResourceDestinationAuto infers destinations from the resource URL.
+//
+// As the zero value, it applies when no explicit destination bits are set and
+// has no effect when combined with explicit bits. To extend inference, combine
+// a recognized result from [InferResourceDestinations] with explicit bits.
+// WebSocket URLs select
+// [ResourceDestinationConnect]. Conventional scripts, stylesheets, images and
+// fonts are inferred from the path extension and registered MIME type; MIME
+// matching is case-insensitive. An inferred stylesheet selects
+// [ResourceDestinationStyle], [ResourceDestinationImage] and
+// [ResourceDestinationFont]. Unclassified resources do not contribute a source.
+const ResourceDestinationAuto ResourceDestination = 0
 
 const (
-	// ResourceDestinationAuto infers the destination from the resource URL.
-	//
-	// WebSocket URLs select [ResourceDestinationConnect]. Other conventional
-	// script, stylesheet, image and font resources are inferred from the URL's
-	// path extension and registered MIME type. An inferred stylesheet source is
-	// also permitted for fonts. Unclassified resources are ignored.
-	ResourceDestinationAuto ResourceDestination = iota
-
 	// ResourceDestinationScript selects script-src.
-	ResourceDestinationScript
+	ResourceDestinationScript ResourceDestination = 1 << iota
 
 	// ResourceDestinationStyle selects style-src.
-	//
-	// It does not also select font-src. List the resource with
-	// [ResourceDestinationFont] to permit both directives.
 	ResourceDestinationStyle
 
 	// ResourceDestinationImage selects img-src.
@@ -49,7 +55,8 @@ const (
 
 	// ResourceDestinationConnect selects connect-src.
 	//
-	// It permits fetch, XMLHttpRequest, EventSource, navigator.sendBeacon and
-	// WebSocket requests to the URL's source.
+	// Use an HTTP, HTTPS or scheme-relative URL for fetch, XMLHttpRequest,
+	// EventSource and navigator.sendBeacon. WebSocket connections require a ws
+	// or wss URL.
 	ResourceDestinationConnect
 )

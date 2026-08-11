@@ -70,8 +70,9 @@ For list-valued forwarding headers, the first hop is used.
 `BuildContentSecurityPolicy(resources...)` builds a `Content-Security-Policy`
 header value. Each `Resource` separates where a resource is located (`URL`)
 from how the browser requests it (`Destination`). The URL's scheme, host and
-port supply the CSP source expression; the destination selects the directive
-that permits it. Paths, queries and fragments do not restrict the permission.
+port supply the CSP source expression; the destination bitmask selects the
+directives that permit it. Paths, queries and fragments do not restrict the
+permission.
 
 Behavior:
 
@@ -89,20 +90,29 @@ Behavior:
       (including web fonts such as `.woff2`, `.otf` and `.eot`) is consulted
       first;
     - extensions not on that list fall back to the local MIME database
-      (`mime.TypeByExtension`), mapping `text/javascript`,
+      (`mime.TypeByExtension`), matching media types case-insensitively and
+      mapping `text/javascript`,
       `application/javascript` and `application/ecmascript` -> `script-src`,
       `text/css` -> `style-src`, `image/*` -> `img-src` and `font/*` ->
       `font-src`;
-    - inferred stylesheet sources are also added to `font-src`;
-    - URLs whose extension matches neither are ignored.
-- An explicit destination bypasses inference and selects only its named CSP
-  directive: script, style, image, font or connect. Connect permits fetches,
-  XMLHttpRequest, EventSource, `navigator.sendBeacon` and WebSocket.
-  `ResourceDestinationStyle` does not also select `font-src`; list a URL once
-  per required destination.
+    - stylesheets select `style-src`, `img-src` and `font-src`; each directive
+      receives the stylesheet's full source expression;
+    - unclassified resources are ignored.
+- `InferResourceDestinations` returns the exact destination bitmask that
+  automatic inference uses. Recognition does not validate CSP source support or
+  determine the application's request context; use explicit destinations when
+  the request context is known. `ResourceDestinationAuto` is zero and has no
+  effect when combined with explicit bits. To extend inference, call this
+  function and combine a recognized result.
+- Explicit destinations bypass inference and select only their named CSP
+  directives. Combine them with `|`, for example `ResourceDestinationStyle |
+  ResourceDestinationImage | ResourceDestinationFont`. A value containing an
+  unknown bit causes the resource to be ignored.
+- Use HTTP, HTTPS or scheme-relative URLs with `ResourceDestinationConnect` for
+  fetch, XMLHttpRequest, EventSource and `navigator.sendBeacon`; WebSockets
+  require explicit `ws://` or `wss://` URLs.
 - HTTP, HTTPS, WebSocket and scheme-relative URLs with hosts are supported.
-  Nil URLs, URLs without hosts, unsupported schemes and unknown destinations
-  are ignored.
+  Nil URLs, URLs without hosts and unsupported schemes are ignored.
 - Hosts must match the CSP host-source grammar. IPv6 literals and hostnames
   containing underscores are ignored; internationalized hostnames must use
   their ASCII A-label (Punycode) form.
@@ -111,18 +121,7 @@ Behavior:
   not permit WebSocket connections; use an explicit `ws://` or `wss://` URL
   for those. A scheme-relative `*` host without a port is ignored.
 
-Example:
-
-```go
-stylesheet := &url.URL{Scheme: "https", Host: "cdn.example.com", Path: "/site.css"}
-module := &url.URL{Scheme: "https", Host: "modules.example.com", Path: "/module.wasm"}
-
-csp := secureheaders.BuildContentSecurityPolicy(
-	secureheaders.Resource{URL: stylesheet},
-	secureheaders.Resource{URL: module, Destination: secureheaders.ResourceDestinationConnect},
-)
-w.Header().Set("Content-Security-Policy", csp)
-```
+See the [`BuildContentSecurityPolicy` package example](https://pkg.go.dev/github.com/linkdata/secureheaders#example-BuildContentSecurityPolicy).
 
 ## Extra headers
 

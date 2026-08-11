@@ -10,11 +10,15 @@ import (
 
 func ExampleBuildContentSecurityPolicy() {
 	stylesheet := &url.URL{Scheme: "https", Host: "cdn.example.com", Path: "/site.css"}
-	module := &url.URL{Scheme: "https", Host: "modules.example.com", Path: "/module.wasm"}
+	api := &url.URL{Scheme: "https", Host: "api.example.com", Path: "/data"}
 
 	policy := secureheaders.BuildContentSecurityPolicy(
-		secureheaders.Resource{URL: stylesheet},
-		secureheaders.Resource{URL: module, Destination: secureheaders.ResourceDestinationConnect},
+		secureheaders.Resource{
+			URL: stylesheet,
+			Destination: secureheaders.ResourceDestinationStyle |
+				secureheaders.ResourceDestinationFont,
+		},
+		secureheaders.Resource{URL: api, Destination: secureheaders.ResourceDestinationConnect},
 	)
 	for directive := range strings.SplitSeq(policy, "; ") {
 		if strings.HasPrefix(directive, "style-src ") ||
@@ -27,5 +31,5 @@ func ExampleBuildContentSecurityPolicy() {
 	// Output:
 	// style-src 'self' 'unsafe-inline' https://cdn.example.com
 	// font-src 'self' https://cdn.example.com
-	// connect-src 'self' https://modules.example.com
+	// connect-src 'self' https://api.example.com
 }
