@@ -7,43 +7,67 @@ import (
 	"strings"
 )
 
-// InferResourceDestinations reports the destinations inferred for u.
+// InferResourceDestinations reports the destinations
+// [ResourceDestinationAuto] infers for u.
 //
-// A recognized result selects the same directives when used explicitly as
-// [Resource.Destination]. A nil or unclassified URL returns
-// ([ResourceDestinationAuto], false). Inference does not validate CSP source
-// support or determine the application's request context; use explicit
-// destinations when the request context is known.
+// The result is ([ResourceDestinationAuto], false) for a nil URL or when no
+// automatic rule matches. Inference does not otherwise validate CSP source
+// support or determine the application's request context.
 func InferResourceDestinations(u *url.URL) (destinations ResourceDestination, recognized bool) {
 	if u != nil {
-		switch strings.ToLower(u.Scheme) {
+		scheme := strings.ToLower(u.Scheme)
+		switch scheme {
 		case "ws", "wss":
 			return ResourceDestinationConnect, true
 		}
 
-		ext := strings.ToLower(path.Ext(u.Path))
-		if destinations, recognized = resourceExtensionDestinations[ext]; recognized {
+		if destinations, recognized = inferResourceDestinationsFromExtension(path.Ext(u.Path)); recognized {
 			return
 		}
 
-		// ParseMediaType normalizes the MIME type and removes parameters before
-		// matching extensions not in the explicit map.
-		if mimetype, _, err := mime.ParseMediaType(mime.TypeByExtension(ext)); err == nil {
-			switch mimetype {
-			case "text/css":
-				destinations = resourceDestinationsStylesheet
-			case "text/javascript", "application/javascript", "application/ecmascript":
-				destinations = ResourceDestinationScript
-			default:
-				switch {
-				case strings.HasPrefix(mimetype, "image/"):
-					destinations = ResourceDestinationImage
-				case strings.HasPrefix(mimetype, "font/"):
-					destinations = ResourceDestinationFont
-				}
+		// Some CDNs append @version to the final filename. Ordinary extension
+		// inference runs first so names such as icon@2x.png retain their final
+		// extension.
+		_, name := path.Split(u.Path)
+		if i := strings.LastIndexByte(name, '@'); i > 0 && i < len(name)-1 {
+			if destinations, recognized = inferResourceDestinationsFromExtension(path.Ext(name[:i])); recognized {
+				return
 			}
-			recognized = destinations != ResourceDestinationAuto
 		}
+		if !recognized && u.Hostname() != "" {
+			switch scheme {
+			case "", "http", "https":
+				destinations = ResourceDestinationConnect
+				recognized = true
+			}
+		}
+	}
+	return
+}
+
+func inferResourceDestinationsFromExtension(ext string) (destinations ResourceDestination, recognized bool) {
+	ext = strings.ToLower(ext)
+	if destinations, recognized = resourceExtensionDestinations[ext]; recognized {
+		return
+	}
+
+	// ParseMediaType normalizes the MIME type and removes parameters before
+	// matching extensions not in the explicit map.
+	if mimetype, _, err := mime.ParseMediaType(mime.TypeByExtension(ext)); err == nil {
+		switch mimetype {
+		case "text/css":
+			destinations = resourceDestinationsStylesheet
+		case "text/javascript", "application/javascript", "application/ecmascript":
+			destinations = ResourceDestinationScript
+		default:
+			switch {
+			case strings.HasPrefix(mimetype, "image/"):
+				destinations = ResourceDestinationImage
+			case strings.HasPrefix(mimetype, "font/"):
+				destinations = ResourceDestinationFont
+			}
+		}
+		recognized = destinations != ResourceDestinationAuto
 	}
 	return
 }
