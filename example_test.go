@@ -13,7 +13,11 @@ func ExampleBuildContentSecurityPolicy() {
 	api := &url.URL{Scheme: "https", Host: "api.example.com", Path: "/data"}
 
 	policy := secureheaders.BuildContentSecurityPolicy(
-		secureheaders.Resource{URL: stylesheet},
+		secureheaders.Resource{
+			URL: stylesheet,
+			Destination: secureheaders.ResourceDestinationStyle |
+				secureheaders.ResourceDestinationFont,
+		},
 		secureheaders.Resource{URL: api, Destination: secureheaders.ResourceDestinationConnect},
 	)
 	for directive := range strings.SplitSeq(policy, "; ") {

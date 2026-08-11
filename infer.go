@@ -7,14 +7,14 @@ import (
 	"strings"
 )
 
-// InferPrimaryResourceDestination reports the primary destination inferred for u.
+// InferResourceDestinations reports the destinations inferred for u.
 //
-// A nil or unclassified URL returns ([ResourceDestinationAuto], false).
-// Recognition does not validate CSP source support or determine the
-// application's request context; use an explicit destination when the request
-// context is known. [ResourceDestinationAuto] may grant permissions beyond the
-// primary destination.
-func InferPrimaryResourceDestination(u *url.URL) (destination ResourceDestination, recognized bool) {
+// A recognized result selects the same directives when used explicitly as
+// [Resource.Destination]. A nil or unclassified URL returns
+// ([ResourceDestinationAuto], false). Inference does not validate CSP source
+// support or determine the application's request context; use explicit
+// destinations when the request context is known.
+func InferResourceDestinations(u *url.URL) (destinations ResourceDestination, recognized bool) {
 	if u != nil {
 		switch strings.ToLower(u.Scheme) {
 		case "ws", "wss":
@@ -22,7 +22,7 @@ func InferPrimaryResourceDestination(u *url.URL) (destination ResourceDestinatio
 		}
 
 		ext := strings.ToLower(path.Ext(u.Path))
-		if destination, recognized = resourceExtensionDestination[ext]; recognized {
+		if destinations, recognized = resourceExtensionDestinations[ext]; recognized {
 			return
 		}
 
@@ -31,32 +31,38 @@ func InferPrimaryResourceDestination(u *url.URL) (destination ResourceDestinatio
 		if mimetype, _, err := mime.ParseMediaType(mime.TypeByExtension(ext)); err == nil {
 			switch mimetype {
 			case "text/css":
-				destination = ResourceDestinationStyle
+				destinations = resourceDestinationsStylesheet
 			case "text/javascript", "application/javascript", "application/ecmascript":
-				destination = ResourceDestinationScript
+				destinations = ResourceDestinationScript
 			default:
 				switch {
 				case strings.HasPrefix(mimetype, "image/"):
-					destination = ResourceDestinationImage
+					destinations = ResourceDestinationImage
 				case strings.HasPrefix(mimetype, "font/"):
-					destination = ResourceDestinationFont
+					destinations = ResourceDestinationFont
 				}
 			}
-			recognized = destination != ResourceDestinationAuto
+			recognized = destinations != ResourceDestinationAuto
 		}
 	}
 	return
 }
 
-// resourceExtensionDestination maps a lowercased file extension (including
-// the leading dot) to its conventional browser destination.
+// Stylesheets can resolve relative image and font references against their own
+// origin. CSP source expressions grant the entire matching origin.
+const resourceDestinationsStylesheet = ResourceDestinationStyle |
+	ResourceDestinationImage |
+	ResourceDestinationFont
+
+// resourceExtensionDestinations maps a lowercased file extension (including
+// the leading dot) to its conventional browser destinations.
 //
 // Extensions are consulted before the host MIME database so common resource
 // inference stays deterministic across operating systems and minimal images.
-var resourceExtensionDestination = map[string]ResourceDestination{
+var resourceExtensionDestinations = map[string]ResourceDestination{
 	".js":    ResourceDestinationScript,
 	".mjs":   ResourceDestinationScript,
-	".css":   ResourceDestinationStyle,
+	".css":   resourceDestinationsStylesheet,
 	".png":   ResourceDestinationImage,
 	".jpg":   ResourceDestinationImage,
 	".jpeg":  ResourceDestinationImage,

@@ -1,6 +1,7 @@
 package secureheaders_test
 
 import (
+	"math/bits"
 	"mime"
 	"net/url"
 	"strings"
@@ -52,6 +53,56 @@ func TestSecureHeaders_BuildContentSecurityPolicy_Default(t *testing.T) {
 	}
 }
 
+func TestSecureHeaders_ResourceDestinationBits(t *testing.T) {
+	if secureheaders.ResourceDestinationAuto != 0 {
+		t.Fatalf("ResourceDestinationAuto = %d, want zero", secureheaders.ResourceDestinationAuto)
+	}
+
+	destinations := []secureheaders.ResourceDestination{
+		secureheaders.ResourceDestinationScript,
+		secureheaders.ResourceDestinationStyle,
+		secureheaders.ResourceDestinationImage,
+		secureheaders.ResourceDestinationFont,
+		secureheaders.ResourceDestinationConnect,
+	}
+	var seen secureheaders.ResourceDestination
+	for _, destination := range destinations {
+		if bits.OnesCount64(uint64(destination)) != 1 {
+			t.Fatalf("destination %d is not a single bit", destination)
+		}
+		if seen&destination != 0 {
+			t.Fatalf("destination bit %d is reused", destination)
+		}
+		seen |= destination
+	}
+}
+
+func TestSecureHeaders_InferredDestinationsMatchAuto(t *testing.T) {
+	for _, rawURL := range []string{
+		"https://scripts.example.com/module.mjs",
+		"https://styles.example.com/app.css",
+		"https://images.example.com/image.png",
+		"https://fonts.example.com/font.woff2",
+		"wss://events.example.com/socket",
+	} {
+		t.Run(rawURL, func(t *testing.T) {
+			u := mustParseURL(t, rawURL)
+			destinations, recognized := secureheaders.InferResourceDestinations(u)
+			if !recognized {
+				t.Fatalf("InferResourceDestinations(%v) was not recognized", u)
+			}
+			got := secureheaders.BuildContentSecurityPolicy(secureheaders.Resource{URL: u})
+			want := secureheaders.BuildContentSecurityPolicy(secureheaders.Resource{
+				URL:         u,
+				Destination: destinations,
+			})
+			if got != want {
+				t.Fatalf("automatic and explicit policies differ:\nauto:     %q\nexplicit: %q", got, want)
+			}
+		})
+	}
+}
+
 func TestSecureHeaders_BuildContentSecurityPolicy_AutoDestinations(t *testing.T) {
 	resources := autoResources(
 		mustParseURL(t, "https://scripts.example.com/module.mjs?version=1#fragment"),
@@ -70,7 +121,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_AutoDestinations(t *testing.T)
 		"form-action 'self'; " +
 		"script-src 'self' https://scripts.example.com; " +
 		"style-src 'self' 'unsafe-inline' https://styles.example.com; " +
-		"img-src 'self' data: https://images.example.com; " +
+		"img-src 'self' data: https://images.example.com https://styles.example.com; " +
 		"font-src 'self' https://fonts.example.com https://styles.example.com; " +
 		"connect-src 'self' wss://events.example.com:8443"
 	if got != want {
@@ -78,44 +129,44 @@ func TestSecureHeaders_BuildContentSecurityPolicy_AutoDestinations(t *testing.T)
 	}
 }
 
-func TestSecureHeaders_InferPrimaryResourceDestination(t *testing.T) {
+func TestSecureHeaders_InferResourceDestinations(t *testing.T) {
 	for _, tc := range []struct {
-		name            string
-		u               *url.URL
-		wantDestination secureheaders.ResourceDestination
-		wantRecognized  bool
+		name             string
+		u                *url.URL
+		wantDestinations secureheaders.ResourceDestination
+		wantRecognized   bool
 	}{
 		{name: "nil"},
 		{name: "empty URL", u: &url.URL{}},
-		{name: "WebSocket", u: &url.URL{Scheme: "WSS", Host: "events.example.com"}, wantDestination: secureheaders.ResourceDestinationConnect, wantRecognized: true},
-		{name: "JavaScript", u: &url.URL{Path: "/app.JS"}, wantDestination: secureheaders.ResourceDestinationScript, wantRecognized: true},
-		{name: "JavaScript module with query", u: mustParseURL(t, "/module.mjs?version=1"), wantDestination: secureheaders.ResourceDestinationScript, wantRecognized: true},
-		{name: "stylesheet", u: &url.URL{Path: "/app.css"}, wantDestination: secureheaders.ResourceDestinationStyle, wantRecognized: true},
-		{name: "PNG image", u: &url.URL{Path: "/image.png"}, wantDestination: secureheaders.ResourceDestinationImage, wantRecognized: true},
-		{name: "JPG image", u: &url.URL{Path: "/image.jpg"}, wantDestination: secureheaders.ResourceDestinationImage, wantRecognized: true},
-		{name: "JPEG image", u: &url.URL{Path: "/image.jpeg"}, wantDestination: secureheaders.ResourceDestinationImage, wantRecognized: true},
-		{name: "GIF image", u: &url.URL{Path: "/image.gif"}, wantDestination: secureheaders.ResourceDestinationImage, wantRecognized: true},
-		{name: "WebP image", u: &url.URL{Path: "/image.webp"}, wantDestination: secureheaders.ResourceDestinationImage, wantRecognized: true},
-		{name: "AVIF image", u: &url.URL{Path: "/image.avif"}, wantDestination: secureheaders.ResourceDestinationImage, wantRecognized: true},
-		{name: "SVG image", u: &url.URL{Path: "/image.svg"}, wantDestination: secureheaders.ResourceDestinationImage, wantRecognized: true},
-		{name: "ICO image", u: &url.URL{Path: "/image.ico"}, wantDestination: secureheaders.ResourceDestinationImage, wantRecognized: true},
-		{name: "BMP image", u: &url.URL{Path: "/image.bmp"}, wantDestination: secureheaders.ResourceDestinationImage, wantRecognized: true},
-		{name: "WOFF font", u: &url.URL{Path: "/font.woff"}, wantDestination: secureheaders.ResourceDestinationFont, wantRecognized: true},
-		{name: "WOFF2 font", u: &url.URL{Path: "/font.WOFF2"}, wantDestination: secureheaders.ResourceDestinationFont, wantRecognized: true},
-		{name: "TTF font", u: &url.URL{Path: "/font.ttf"}, wantDestination: secureheaders.ResourceDestinationFont, wantRecognized: true},
-		{name: "OTF font", u: &url.URL{Path: "/font.otf"}, wantDestination: secureheaders.ResourceDestinationFont, wantRecognized: true},
-		{name: "TTC font", u: &url.URL{Path: "/font.ttc"}, wantDestination: secureheaders.ResourceDestinationFont, wantRecognized: true},
-		{name: "EOT font", u: &url.URL{Path: "/font.eot"}, wantDestination: secureheaders.ResourceDestinationFont, wantRecognized: true},
-		{name: "stylesheet with unsupported source", u: mustParseURL(t, "ftp://files.example.com/app.css"), wantDestination: secureheaders.ResourceDestinationStyle, wantRecognized: true},
+		{name: "WebSocket", u: &url.URL{Scheme: "WSS", Host: "events.example.com"}, wantDestinations: secureheaders.ResourceDestinationConnect, wantRecognized: true},
+		{name: "JavaScript", u: &url.URL{Path: "/app.JS"}, wantDestinations: secureheaders.ResourceDestinationScript, wantRecognized: true},
+		{name: "JavaScript module with query", u: mustParseURL(t, "/module.mjs?version=1"), wantDestinations: secureheaders.ResourceDestinationScript, wantRecognized: true},
+		{name: "stylesheet", u: &url.URL{Path: "/app.css"}, wantDestinations: secureheaders.ResourceDestinationStyle | secureheaders.ResourceDestinationImage | secureheaders.ResourceDestinationFont, wantRecognized: true},
+		{name: "PNG image", u: &url.URL{Path: "/image.png"}, wantDestinations: secureheaders.ResourceDestinationImage, wantRecognized: true},
+		{name: "JPG image", u: &url.URL{Path: "/image.jpg"}, wantDestinations: secureheaders.ResourceDestinationImage, wantRecognized: true},
+		{name: "JPEG image", u: &url.URL{Path: "/image.jpeg"}, wantDestinations: secureheaders.ResourceDestinationImage, wantRecognized: true},
+		{name: "GIF image", u: &url.URL{Path: "/image.gif"}, wantDestinations: secureheaders.ResourceDestinationImage, wantRecognized: true},
+		{name: "WebP image", u: &url.URL{Path: "/image.webp"}, wantDestinations: secureheaders.ResourceDestinationImage, wantRecognized: true},
+		{name: "AVIF image", u: &url.URL{Path: "/image.avif"}, wantDestinations: secureheaders.ResourceDestinationImage, wantRecognized: true},
+		{name: "SVG image", u: &url.URL{Path: "/image.svg"}, wantDestinations: secureheaders.ResourceDestinationImage, wantRecognized: true},
+		{name: "ICO image", u: &url.URL{Path: "/image.ico"}, wantDestinations: secureheaders.ResourceDestinationImage, wantRecognized: true},
+		{name: "BMP image", u: &url.URL{Path: "/image.bmp"}, wantDestinations: secureheaders.ResourceDestinationImage, wantRecognized: true},
+		{name: "WOFF font", u: &url.URL{Path: "/font.woff"}, wantDestinations: secureheaders.ResourceDestinationFont, wantRecognized: true},
+		{name: "WOFF2 font", u: &url.URL{Path: "/font.WOFF2"}, wantDestinations: secureheaders.ResourceDestinationFont, wantRecognized: true},
+		{name: "TTF font", u: &url.URL{Path: "/font.ttf"}, wantDestinations: secureheaders.ResourceDestinationFont, wantRecognized: true},
+		{name: "OTF font", u: &url.URL{Path: "/font.otf"}, wantDestinations: secureheaders.ResourceDestinationFont, wantRecognized: true},
+		{name: "TTC font", u: &url.URL{Path: "/font.ttc"}, wantDestinations: secureheaders.ResourceDestinationFont, wantRecognized: true},
+		{name: "EOT font", u: &url.URL{Path: "/font.eot"}, wantDestinations: secureheaders.ResourceDestinationFont, wantRecognized: true},
+		{name: "stylesheet with unsupported source", u: mustParseURL(t, "ftp://files.example.com/app.css"), wantDestinations: secureheaders.ResourceDestinationStyle | secureheaders.ResourceDestinationImage | secureheaders.ResourceDestinationFont, wantRecognized: true},
 		{name: "unclassified HTTPS", u: mustParseURL(t, "https://api.example.com/module.wasm")},
 		{name: "unclassified relative", u: &url.URL{Path: "/resource.unknown"}},
 		{name: "unclassified scheme", u: mustParseURL(t, "ftp://files.example.com/resource.unknown")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			gotDestination, gotRecognized := secureheaders.InferPrimaryResourceDestination(tc.u)
-			if gotDestination != tc.wantDestination || gotRecognized != tc.wantRecognized {
-				t.Fatalf("InferPrimaryResourceDestination(%v) = (%v, %t), want (%v, %t)",
-					tc.u, gotDestination, gotRecognized, tc.wantDestination, tc.wantRecognized)
+			gotDestinations, gotRecognized := secureheaders.InferResourceDestinations(tc.u)
+			if gotDestinations != tc.wantDestinations || gotRecognized != tc.wantRecognized {
+				t.Fatalf("InferResourceDestinations(%v) = (%v, %t), want (%v, %t)",
+					tc.u, gotDestinations, gotRecognized, tc.wantDestinations, tc.wantRecognized)
 			}
 		})
 	}
@@ -124,8 +175,11 @@ func TestSecureHeaders_InferPrimaryResourceDestination(t *testing.T) {
 func TestSecureHeaders_BuildContentSecurityPolicy_ExplicitDestinations(t *testing.T) {
 	shared := mustParseURL(t, "https://Shared.Example.com:8443/module.png")
 	resources := []secureheaders.Resource{
-		{URL: shared, Destination: secureheaders.ResourceDestinationScript},
-		{URL: shared, Destination: secureheaders.ResourceDestinationConnect},
+		{URL: shared, Destination: secureheaders.ResourceDestinationScript |
+			secureheaders.ResourceDestinationStyle |
+			secureheaders.ResourceDestinationImage |
+			secureheaders.ResourceDestinationFont |
+			secureheaders.ResourceDestinationConnect},
 		{URL: mustParseURL(t, "https://styles.example.com/app.js"), Destination: secureheaders.ResourceDestinationStyle},
 		{URL: mustParseURL(t, "https://images.example.com/picture.woff2"), Destination: secureheaders.ResourceDestinationImage},
 		{URL: mustParseURL(t, "https://fonts.example.com/font.css"), Destination: secureheaders.ResourceDestinationFont},
@@ -144,9 +198,9 @@ func TestSecureHeaders_BuildContentSecurityPolicy_ExplicitDestinations(t *testin
 		"base-uri 'self'; " +
 		"form-action 'self'; " +
 		"script-src 'self' https://shared.example.com:8443; " +
-		"style-src 'self' 'unsafe-inline' https://styles.example.com; " +
-		"img-src 'self' data: https://images.example.com; " +
-		"font-src 'self' https://fonts.example.com; " +
+		"style-src 'self' 'unsafe-inline' https://shared.example.com:8443 https://styles.example.com; " +
+		"img-src 'self' data: https://images.example.com https://shared.example.com:8443; " +
+		"font-src 'self' https://fonts.example.com https://shared.example.com:8443; " +
 		"connect-src 'self' http://api.example.com https://api.example.com https://shared.example.com:8443 " +
 		"protocol.example.com:9443 ws://events.example.com wss://events.example.com"
 	if got != want {
@@ -155,6 +209,7 @@ func TestSecureHeaders_BuildContentSecurityPolicy_ExplicitDestinations(t *testin
 }
 
 func TestSecureHeaders_BuildContentSecurityPolicy_IgnoresInvalidResources(t *testing.T) {
+	unknownDestination := secureheaders.ResourceDestination(1 << 31)
 	tests := []struct {
 		name     string
 		resource secureheaders.Resource
@@ -166,9 +221,13 @@ func TestSecureHeaders_BuildContentSecurityPolicy_IgnoresInvalidResources(t *tes
 		{name: "WebSocket without host", resource: secureheaders.Resource{URL: mustParseURL(t, "ws:/socket")}},
 		{name: "unsupported scheme", resource: secureheaders.Resource{URL: mustParseURL(t, "ftp://files.example.com/app.js")}},
 		{name: "scheme-relative bare wildcard", resource: secureheaders.Resource{URL: &url.URL{Host: "*", Path: "/app.js"}}},
-		{name: "unknown destination", resource: secureheaders.Resource{
+		{name: "unknown destination bit", resource: secureheaders.Resource{
 			URL:         mustParseURL(t, "https://invalid.example.com/app.js"),
-			Destination: secureheaders.ResourceDestination(255),
+			Destination: unknownDestination,
+		}},
+		{name: "known and unknown destination bits", resource: secureheaders.Resource{
+			URL:         mustParseURL(t, "https://invalid.example.com/app.js"),
+			Destination: secureheaders.ResourceDestinationScript | unknownDestination,
 		}},
 		{name: "directive delimiter", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "cdn.example.com;script-src", Path: "/app.js"}}},
 		{name: "policy delimiter", resource: secureheaders.Resource{URL: &url.URL{Scheme: "https", Host: "cdn.example.com,default-src", Path: "/app.js"}}},
@@ -268,20 +327,20 @@ func TestSecureHeaders_BuildContentSecurityPolicy_ValidSourcesWithPorts(t *testi
 	}
 }
 
-func TestSecureHeaders_InferPrimaryResourceDestination_MIMEFallback(t *testing.T) {
+func TestSecureHeaders_InferResourceDestinations_MIMEFallback(t *testing.T) {
 	tests := []struct {
-		name            string
-		ext             string
-		mimeType        string
-		wantDestination secureheaders.ResourceDestination
-		wantRecognized  bool
+		name             string
+		ext              string
+		mimeType         string
+		wantDestinations secureheaders.ResourceDestination
+		wantRecognized   bool
 	}{
-		{name: "text JavaScript", ext: ".customjs", mimeType: "TEXT/JAVASCRIPT", wantDestination: secureheaders.ResourceDestinationScript, wantRecognized: true},
-		{name: "application JavaScript", ext: ".customappjs", mimeType: "APPLICATION/JAVASCRIPT", wantDestination: secureheaders.ResourceDestinationScript, wantRecognized: true},
-		{name: "application ECMAScript", ext: ".customes", mimeType: "APPLICATION/ECMASCRIPT", wantDestination: secureheaders.ResourceDestinationScript, wantRecognized: true},
-		{name: "stylesheet", ext: ".customcss", mimeType: "TeXt/CsS; ChArSeT=UTF-8", wantDestination: secureheaders.ResourceDestinationStyle, wantRecognized: true},
-		{name: "image", ext: ".customimg", mimeType: "IMAGE/X-CUSTOM", wantDestination: secureheaders.ResourceDestinationImage, wantRecognized: true},
-		{name: "font", ext: ".customfont", mimeType: "FONT/X-CUSTOM", wantDestination: secureheaders.ResourceDestinationFont, wantRecognized: true},
+		{name: "text JavaScript", ext: ".customjs", mimeType: "TEXT/JAVASCRIPT", wantDestinations: secureheaders.ResourceDestinationScript, wantRecognized: true},
+		{name: "application JavaScript", ext: ".customappjs", mimeType: "APPLICATION/JAVASCRIPT", wantDestinations: secureheaders.ResourceDestinationScript, wantRecognized: true},
+		{name: "application ECMAScript", ext: ".customes", mimeType: "APPLICATION/ECMASCRIPT", wantDestinations: secureheaders.ResourceDestinationScript, wantRecognized: true},
+		{name: "stylesheet", ext: ".customcss", mimeType: "TeXt/CsS; ChArSeT=UTF-8", wantDestinations: secureheaders.ResourceDestinationStyle | secureheaders.ResourceDestinationImage | secureheaders.ResourceDestinationFont, wantRecognized: true},
+		{name: "image", ext: ".customimg", mimeType: "IMAGE/X-CUSTOM", wantDestinations: secureheaders.ResourceDestinationImage, wantRecognized: true},
+		{name: "font", ext: ".customfont", mimeType: "FONT/X-CUSTOM", wantDestinations: secureheaders.ResourceDestinationFont, wantRecognized: true},
 		{name: "image-like", ext: ".customimagery", mimeType: "IMAGERY/X-CUSTOM"},
 		{name: "font-like", ext: ".customfontlike", mimeType: "FONTLIKE/X-CUSTOM"},
 		{name: "stylesheet-like", ext: ".customcsslike", mimeType: "TEXT/CSSFOO"},
@@ -297,10 +356,10 @@ func TestSecureHeaders_InferPrimaryResourceDestination_MIMEFallback(t *testing.T
 				t.Fatalf("AddExtensionType: %v", err)
 			}
 			u := &url.URL{Path: "/asset" + tc.ext}
-			gotDestination, gotRecognized := secureheaders.InferPrimaryResourceDestination(u)
-			if gotDestination != tc.wantDestination || gotRecognized != tc.wantRecognized {
-				t.Fatalf("InferPrimaryResourceDestination(%v) = (%v, %t), want (%v, %t)",
-					u, gotDestination, gotRecognized, tc.wantDestination, tc.wantRecognized)
+			gotDestinations, gotRecognized := secureheaders.InferResourceDestinations(u)
+			if gotDestinations != tc.wantDestinations || gotRecognized != tc.wantRecognized {
+				t.Fatalf("InferResourceDestinations(%v) = (%v, %t), want (%v, %t)",
+					u, gotDestinations, gotRecognized, tc.wantDestinations, tc.wantRecognized)
 			}
 		})
 	}

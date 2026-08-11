@@ -10,10 +10,9 @@ import (
 
 // BuildContentSecurityPolicy returns a Content-Security-Policy header value.
 //
-// Each resource contributes a host source expression according to its
-// destination. [ResourceDestinationAuto] applies its documented URL inference.
-// The same URL may be listed more than once with different explicit
-// destinations.
+// Each resource contributes a host source expression to its selected
+// destinations. [ResourceDestinationAuto] applies its documented URL inference.
+// Other destination values may be combined with bitwise OR.
 //
 // With no resources, the function returns the default policy, which includes
 // style-src 'unsafe-inline'. HTTP, HTTPS, WebSocket and scheme-relative URLs
@@ -24,8 +23,8 @@ import (
 // scheme-relative * host without a port is ignored. Internationalized hostnames
 // must use their ASCII A-label (Punycode) form. Resources with nil URLs, URLs
 // whose automatic destination cannot be inferred, hosts outside the CSP
-// host-source grammar, unsupported schemes or unrecognized explicit
-// destinations do not contribute a source.
+// host-source grammar, unsupported schemes or destination bitmasks containing
+// unknown bits do not contribute a source.
 //
 // Resources must come from trusted application configuration. Callers are
 // responsible for parsing and validating URLs; this function does not sanitize
@@ -40,30 +39,30 @@ func BuildContentSecurityPolicy(resources ...Resource) (value string) {
 	for _, resource := range resources {
 		if resource.URL != nil {
 			if source := cspSourceExpr(resource.URL); source != "" {
-				destination := resource.Destination
-				automatic := destination == ResourceDestinationAuto
-				if automatic {
-					inferredDestination, recognized := InferPrimaryResourceDestination(resource.URL)
+				destinations := resource.Destination
+				if destinations == ResourceDestinationAuto {
+					inferredDestinations, recognized := InferResourceDestinations(resource.URL)
 					if !recognized {
 						continue
 					}
-					destination = inferredDestination
+					destinations = inferredDestinations
 				}
-				switch destination {
-				case ResourceDestinationScript:
+				if destinations&^resourceDestinationsAll != 0 {
+					continue
+				}
+				if destinations&ResourceDestinationScript != 0 {
 					scriptSrc[source] = struct{}{}
-				case ResourceDestinationStyle:
+				}
+				if destinations&ResourceDestinationStyle != 0 {
 					styleSrc[source] = struct{}{}
-					if automatic {
-						// Relative font URLs resolve against the stylesheet URL, so
-						// Auto permits the stylesheet's entire source in font-src.
-						fontSrc[source] = struct{}{}
-					}
-				case ResourceDestinationImage:
+				}
+				if destinations&ResourceDestinationImage != 0 {
 					imgSrc[source] = struct{}{}
-				case ResourceDestinationFont:
+				}
+				if destinations&ResourceDestinationFont != 0 {
 					fontSrc[source] = struct{}{}
-				case ResourceDestinationConnect:
+				}
+				if destinations&ResourceDestinationConnect != 0 {
 					connectSrc[source] = struct{}{}
 				}
 			}
@@ -85,6 +84,12 @@ func BuildContentSecurityPolicy(resources ...Resource) (value string) {
 
 	return
 }
+
+const resourceDestinationsAll = ResourceDestinationScript |
+	ResourceDestinationStyle |
+	ResourceDestinationImage |
+	ResourceDestinationFont |
+	ResourceDestinationConnect
 
 func cspDirective(name string, defaults []string, extras map[string]struct{}) string {
 	values := slices.Sorted(maps.Keys(extras))
